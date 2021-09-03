@@ -1,9 +1,11 @@
 use clap::{AppSettings, Clap};
+use rocket::http::Status;
+use rocket::response::{content, status};
+
+#[macro_use] extern crate rocket;
 
 mod payload;
 
-/// This doc string acts as a help message when the user runs '--help'
-/// as do all doc strings on fields
 #[derive(Clap)]
 #[clap(version = "1.0", author = "Epsagon")]
 #[clap(setting = AppSettings::ColoredHelp)]
@@ -17,25 +19,58 @@ async fn fetch_json(json_endpoint: String) -> Result<String, Box<dyn std::error:
     Ok(body)
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("Prom JSON Exporter");
+#[get("/metrics")]
+async fn metrics() -> status::Custom<content::Plain<String>> {
     let opts: Opts = Opts::parse();
-
-    println!("reading {}", opts.json_endpoint);
-
     match fetch_json(opts.json_endpoint).await {
         Ok(body) => {
             println!("{}", body);
-            for metric in payload::json_to_metrics(body).unwrap() {
-                println!("{}", metric.to_string());
-            }
+
+            let metrics = payload::json_to_metrics(body)
+                        .unwrap()
+                        .into_iter()
+                        .map(|metric| metric.to_string())
+                        .collect::<Vec<_>>()
+                        .join("\n");
+
+            status::Custom(Status::Ok, content::Plain(metrics))
         },
         Err(err) => {
-            println!("{:?}", err);
+            status::Custom(Status::InternalServerError, content::Plain(err.to_string()))
         }
     }
-
-    Ok(())
 }
+
+#[rocket::main]
+async fn main() -> Result<(), rocket::Error> {
+    let opts: Opts = Opts::parse();
+    println!("reading {}", opts.json_endpoint);
+
+    rocket::build()
+    .mount("/", routes![metrics])
+    .launch()
+    .await
+}
+
+
+// #[tokio::main]
+// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//     println!("Prom JSON Exporter");
+
+
+
+//     match fetch_json(opts.json_endpoint).await {
+//         Ok(body) => {
+//             println!("{}", body);
+//             for metric in payload::json_to_metrics(body).unwrap() {
+//                 println!("{}", metric.to_string());
+//             }
+//         },
+//         Err(err) => {
+//             println!("{:?}", err);
+//         }
+//     }
+
+//     Ok(())
+// }
 

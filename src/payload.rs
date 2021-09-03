@@ -49,7 +49,7 @@ impl ToString for PromMetric {
                 .collect::<Vec<_>>()
                 .join(",");
 
-            format!("{}{{ {} }}", self.name, labels)
+            format!("{}{{{}}}", self.name, labels)
         }
     }
 }
