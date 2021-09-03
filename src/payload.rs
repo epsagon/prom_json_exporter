@@ -1,5 +1,7 @@
 use serde_json::{Value, Result};
+use convert_case::{Case, Casing};
 use std::collections::HashMap;
+
 
 pub struct PromMetric {
     pub name: String,
@@ -21,7 +23,8 @@ pub fn json_to_metrics(json: String) -> Result<Vec<PromMetric>> {
     let mut metrics = vec![];
 
     for (key, value) in json_object {
-        metrics.push(PromMetric::new(key, value.to_string()));
+        let snake_case_name = key.to_case(Case::Snake);
+        metrics.push(PromMetric::new(snake_case_name, value.to_string()));
     }
 
     Ok(metrics)
@@ -43,19 +46,41 @@ mod tests {
       }"#.to_string()
     }
 
+    fn simple_json_with_camel_case() -> String {
+        r#"{
+        "serverUp": "up",
+        "backends": 23
+      }"#.to_string()
+    }
+
+
     #[test]
     fn simple_json_converts_numeric() {
         let backend_metric = json_to_metrics(simple_json()).unwrap().into_iter()
                                 .find(|x| x.name == "backends")
                                 .unwrap();
 
+        assert_eq!(backend_metric.name, "backends");
+        assert_eq!(backend_metric.value, "23");
 
+
+    }
+
+    #[test]
+    fn simple_json_converts_string() {
         let uptime_metric = json_to_metrics(simple_json()).unwrap().into_iter()
                                 .find(|x| x.name == "server_up")
                                 .unwrap();
 
-        assert_eq!(backend_metric.name, "backends");
-        assert_eq!(backend_metric.value, "23");
+        assert_eq!(uptime_metric.name, "server_up");
+        assert_eq!(uptime_metric.value, "\"up\"");
+    }
+
+    #[test]
+    fn simple_json_converts_camel_case_to_snake_case() {
+        let uptime_metric = json_to_metrics(simple_json_with_camel_case()).unwrap().into_iter()
+            .find(|x| x.name == "server_up")
+            .unwrap();
 
         assert_eq!(uptime_metric.name, "server_up");
         assert_eq!(uptime_metric.value, "\"up\"");
