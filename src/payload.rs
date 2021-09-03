@@ -2,7 +2,7 @@ use serde_json::{Value, Result};
 use convert_case::{Case, Casing};
 use std::collections::HashMap;
 
-
+#[derive(Debug)]
 pub struct PromMetric {
     pub name: String,
     pub value: String,
@@ -22,9 +22,18 @@ pub fn json_to_metrics(json: String) -> Result<Vec<PromMetric>> {
 
     let mut metrics = vec![];
 
-    for (key, value) in json_object {
-        let snake_case_name = key.to_case(Case::Snake);
-        metrics.push(PromMetric::new(snake_case_name, value.to_string()));
+    for (parent_key, value) in json_object {
+        let snake_case_name = parent_key.to_case(Case::Snake);
+        if !value.is_object() {
+            metrics.push(PromMetric::new(snake_case_name, value.to_string()));
+        }
+        else {
+            let child_object = value.as_object().unwrap();
+            for (child_key, child_value) in child_object {
+                let snake_case_name = format!("{}_{}", parent_key, child_key.to_case(Case::Snake));
+                metrics.push(PromMetric::new(snake_case_name, child_value.to_string()));
+            }
+        }
     }
 
     Ok(metrics)
@@ -84,5 +93,36 @@ mod tests {
 
         assert_eq!(uptime_metric.name, "server_up");
         assert_eq!(uptime_metric.value, "\"up\"");
+    }
+
+    #[test]
+    fn complex_json_converts_status() {
+        let uptime_metric = json_to_metrics(nested_json()).unwrap().into_iter()
+                                .find(|x| x.name == "status")
+                                .unwrap();
+
+        assert_eq!(uptime_metric.name, "status");
+        assert_eq!(uptime_metric.value, "\"success\"");
+    }
+
+    #[test]
+    fn complex_json_converts_code() {
+        let uptime_metric = json_to_metrics(nested_json()).unwrap().into_iter()
+                                .find(|x| x.name == "code")
+                                .unwrap();
+
+        assert_eq!(uptime_metric.name, "code");
+        assert_eq!(uptime_metric.value, "0");
+    }
+
+    #[test]
+    fn complex_json_convert_data_user_count() {
+        let metrics = json_to_metrics(nested_json()).unwrap();
+        let uptime_metric = metrics.into_iter()
+                                .find(|x| x.name == "data_user_count")
+                                .unwrap();
+
+        assert_eq!(uptime_metric.name, "data_user_count");
+        assert_eq!(uptime_metric.value, "140");
     }
 }
