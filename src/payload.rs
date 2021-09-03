@@ -41,9 +41,6 @@ impl ToString for PromMetric {
             format!("{} {}", self.name, value)
         }
         else {
-            //api_http_requests_total{method="POST", handler="/messages"}
-            //labels need to be string concatenated, joined by comma
-
             let labels = self.labels
                 .as_ref()
                 .unwrap()
@@ -51,7 +48,6 @@ impl ToString for PromMetric {
                 .map(|label| format!("{}={}", label.name, label.value))
                 .collect::<Vec<_>>()
                 .join(",");
-
 
             format!("{}{{ {} }}", self.name, labels)
         }
@@ -69,6 +65,20 @@ fn to_labels(child_object: &Map<String, Value>) -> Vec<PromLabel> {
     labels
 }
 
+fn convert_json_array(value: Value, snake_case_name: String) -> Vec<PromMetric> {
+    let child_list = value.as_array().unwrap();
+    let mut metrics = vec!();
+
+    for label in child_list {
+        let mut labels = vec!();
+        for (child_key, child_value) in label.as_object().unwrap() {
+            labels.push(PromLabel::new(child_key.to_string(), child_value.to_string()));
+        }
+        metrics.push(PromMetric::new(snake_case_name.to_string(), None, Some(labels)));
+    }
+    metrics
+}
+
 pub fn json_to_metrics(json: String) -> Result<Vec<PromMetric>> {
     let json_object: HashMap<String, Value> = serde_json::from_str(&json)?;
 
@@ -82,15 +92,8 @@ pub fn json_to_metrics(json: String) -> Result<Vec<PromMetric>> {
             metrics.push(PromMetric::new(snake_case_name.to_string(), None, Some(to_labels(&child_object))));
         }
         else if value.is_array() {
-            let child_list = value.as_array().unwrap();
-
-            for label in child_list {
-                let mut labels = vec!();
-                for (child_key, child_value) in label.as_object().unwrap() {
-                    labels.push(PromLabel::new(child_key.to_string(), child_value.to_string()));
-                }
-                metrics.push(PromMetric::new(snake_case_name.to_string(), None, Some(labels)))
-            }
+            let mut new_metrics = convert_json_array(value, snake_case_name);
+            metrics.append(&mut new_metrics);
         }
         else {
             metrics.push(PromMetric::new(snake_case_name, Some(value.to_string()), None));
