@@ -49,26 +49,3 @@ async fn main() -> Result<(), rocket::Error> {
     .launch()
     .await
 }
-
-
-// #[tokio::main]
-// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//     println!("Prom JSON Exporter");
-
-
-
-//     match fetch_json(opts.json_endpoint).await {
-//         Ok(body) => {
-//             println!("{}", body);
-//             for metric in payload::json_to_metrics(body).unwrap() {
-//                 println!("{}", metric.to_string());
-//             }
-//         },
-//         Err(err) => {
-//             println!("{:?}", err);
-//         }
-//     }
-
-//     Ok(())
-// }
-
