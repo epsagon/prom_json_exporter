@@ -17,6 +17,12 @@ impl PromMetric {
     }
 }
 
+impl ToString for PromMetric {
+    fn to_string(&self) -> std::string::String {
+        format!("{} {}", self.name, self.value)
+    }
+}
+
 pub fn json_to_metrics(json: String) -> Result<Vec<PromMetric>> {
     let json_object: HashMap<String, Value> = serde_json::from_str(&json)?;
 

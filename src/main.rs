@@ -27,6 +27,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match fetch_json(opts.json_endpoint).await {
         Ok(body) => {
             println!("{}", body);
+            for metric in payload::json_to_metrics(body).unwrap() {
+                println!("{}", metric.to_string());
+            }
         },
         Err(err) => {
             println!("{:?}", err);
