@@ -24,8 +24,6 @@ async fn metrics() -> status::Custom<content::Plain<String>> {
     let opts: Opts = Opts::parse();
     match fetch_json(opts.json_endpoint).await {
         Ok(body) => {
-            println!("{}", body);
-
             let metrics = payload::json_to_metrics(body)
                         .unwrap()
                         .into_iter()
