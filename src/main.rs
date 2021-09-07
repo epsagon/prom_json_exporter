@@ -7,6 +7,8 @@ use rocket::response::{content, status};
 
 mod payload;
 mod config_file;
+mod prom_metric;
+mod prom_label;
 
 #[derive(Clap)]
 #[clap(version = "1.0", author = "Epsagon")]

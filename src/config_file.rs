@@ -1,6 +1,5 @@
 use serde::Deserialize;
 use std::fs;
-use std::io::Error;
 
 #[derive(Deserialize)]
 pub struct MetricSelector {
