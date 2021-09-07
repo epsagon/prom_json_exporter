@@ -5,59 +5,71 @@ use std::collections::HashMap;
 use crate::prom_label::PromLabel;
 use crate::prom_metric::PromMetric;
 
-fn to_labels(child_object: &Map<String, Value>) -> Vec<PromLabel> {
-    let mut labels = vec!();
-
-    for (child_key, child_value) in child_object {
-        let snake_case_name = child_key.to_case(Case::Snake);
-        labels.push(PromLabel::new(snake_case_name, child_value.to_string()));
-    }
-
-    labels
+pub struct Payload {
+    json_payload: String
 }
 
-fn convert_json_array(value: Value, snake_case_name: String) -> Vec<PromMetric> {
-    let child_list = value.as_array().unwrap();
-    let mut metrics = vec!();
+impl Payload {
+    pub fn new(json: String) -> Self {
+        Self {
+            json_payload: json
+        }
+    }
 
-    for label in child_list {
+    fn to_labels(&self, child_object: &Map<String, Value>) -> Vec<PromLabel> {
         let mut labels = vec!();
-        for (child_key, child_value) in label.as_object().unwrap() {
-            labels.push(PromLabel::new(child_key.to_string(), child_value.to_string()));
-        }
-        metrics.push(PromMetric::new(snake_case_name.to_string(), None, Some(labels)));
-    }
-    metrics
-}
 
-pub fn json_to_metrics(json: String) -> Result<Vec<PromMetric>> {
-    let json_object: HashMap<String, Value> = serde_json::from_str(&json)?;
-
-    let mut metrics = vec![];
-
-    for (parent_key, value) in json_object {
-        let snake_case_name = parent_key.to_case(Case::Snake);
-
-        if value.is_object() {
-            let child_object = value.as_object().unwrap();
-            metrics.push(PromMetric::new(snake_case_name.to_string(), None, Some(to_labels(&child_object))));
+        for (child_key, child_value) in child_object {
+            let snake_case_name = child_key.to_case(Case::Snake);
+            labels.push(PromLabel::new(snake_case_name, child_value.to_string()));
         }
-        else if value.is_array() {
-            let mut new_metrics = convert_json_array(value, snake_case_name);
-            metrics.append(&mut new_metrics);
-        }
-        else {
-            metrics.push(PromMetric::new(snake_case_name, Some(value.to_string()), None));
-        }
+
+        labels
     }
 
-    Ok(metrics)
+    fn convert_json_array(&self, value: Value, snake_case_name: String) -> Vec<PromMetric> {
+        let child_list = value.as_array().unwrap();
+        let mut metrics = vec!();
+
+        for label in child_list {
+            let mut labels = vec!();
+            for (child_key, child_value) in label.as_object().unwrap() {
+                labels.push(PromLabel::new(child_key.to_string(), child_value.to_string()));
+            }
+            metrics.push(PromMetric::new(snake_case_name.to_string(), None, Some(labels)));
+        }
+        metrics
+    }
+
+    pub fn json_to_metrics(&self) -> Result<Vec<PromMetric>> {
+        let json_object: HashMap<String, Value> = serde_json::from_str(&self.json_payload)?;
+
+        let mut metrics = vec![];
+
+        for (parent_key, value) in json_object {
+            let snake_case_name = parent_key.to_case(Case::Snake);
+
+            if value.is_object() {
+                let child_object = value.as_object().unwrap();
+                metrics.push(PromMetric::new(snake_case_name.to_string(), None, Some(self.to_labels(&child_object))));
+            }
+            else if value.is_array() {
+                let mut new_metrics = self.convert_json_array(value, snake_case_name);
+                metrics.append(&mut new_metrics);
+            }
+            else {
+                metrics.push(PromMetric::new(snake_case_name, Some(value.to_string()), None));
+            }
+        }
+
+        Ok(metrics)
+    }
+
 }
 
 #[cfg(test)]
 mod tests {
-
-    use crate::payload::json_to_metrics;
+    use crate::payload::Payload;
 
     fn nested_json() -> String {
         r#"{"status":"success","code":0,"data":{"UserCount":140,"UserCountActive":23}}"#.to_string()
@@ -107,7 +119,7 @@ mod tests {
 
     #[test]
     fn simple_json_converts_numeric() {
-        let backend_metric = json_to_metrics(simple_json()).unwrap().into_iter()
+        let backend_metric = Payload::new(simple_json()).json_to_metrics().unwrap().into_iter()
                                 .find(|x| x.name == "backends")
                                 .unwrap();
 
@@ -117,7 +129,7 @@ mod tests {
 
     #[test]
     fn simple_json_converts_string() {
-        let uptime_metric = json_to_metrics(simple_json()).unwrap().into_iter()
+        let uptime_metric = Payload::new(simple_json()).json_to_metrics().unwrap().into_iter()
                                 .find(|x| x.name == "server_up")
                                 .unwrap();
 
@@ -127,7 +139,7 @@ mod tests {
 
     #[test]
     fn simple_json_converts_camel_case_to_snake_case() {
-        let uptime_metric = json_to_metrics(simple_json_with_camel_case()).unwrap().into_iter()
+        let uptime_metric = Payload::new(simple_json_with_camel_case()).json_to_metrics().unwrap().into_iter()
             .find(|x| x.name == "server_up")
             .unwrap();
 
@@ -137,7 +149,7 @@ mod tests {
 
     #[test]
     fn complex_json_converts_status() {
-        let uptime_metric = json_to_metrics(nested_json()).unwrap().into_iter()
+        let uptime_metric = Payload::new(nested_json()).json_to_metrics().unwrap().into_iter()
                                 .find(|x| x.name == "status")
                                 .unwrap();
 
@@ -147,7 +159,7 @@ mod tests {
 
     #[test]
     fn complex_json_converts_code() {
-        let uptime_metric = json_to_metrics(nested_json()).unwrap().into_iter()
+        let uptime_metric = Payload::new(nested_json()).json_to_metrics().unwrap().into_iter()
                                 .find(|x| x.name == "code")
                                 .unwrap();
 
@@ -157,7 +169,7 @@ mod tests {
 
     #[test]
     fn complex_json_convert_data_user_count_label() {
-        let metrics = json_to_metrics(nested_json()).unwrap();
+        let metrics = Payload::new(nested_json()).json_to_metrics().unwrap();
         let data_metric = metrics.into_iter()
                                 .find(|x| x.name == "data")
                                 .unwrap();
@@ -177,7 +189,7 @@ mod tests {
 
     #[test]
     fn complex_json_convert_user_count_active_label() {
-        let metrics = json_to_metrics(nested_json()).unwrap();
+        let metrics = Payload::new(nested_json()).json_to_metrics().unwrap();
         let data_metric = metrics.into_iter()
                                     .find(|x| x.name == "data")
                                     .unwrap();
@@ -194,7 +206,7 @@ mod tests {
 
     #[test]
     fn complex_json_convert_list_to_labels_has_three_metrics() {
-        let metrics = json_to_metrics(json_with_list()).unwrap();
+        let metrics = Payload::new(json_with_list()).json_to_metrics().unwrap();
         let values_metrics = metrics.into_iter()
                                     .filter(|x| x.name == "values");
         assert_eq!(values_metrics.count(), 3);
@@ -202,7 +214,7 @@ mod tests {
 
     #[test]
     fn complex_json_convert_list_to_labels_has_correct_number_of_labels() {
-        let metrics = json_to_metrics(json_with_list()).unwrap();
+        let metrics = Payload::new(json_with_list()).json_to_metrics().unwrap();
         let values_metrics = metrics.into_iter()
                                     .filter(|x| x.name == "values")
                                     .collect::<Vec<_>>();

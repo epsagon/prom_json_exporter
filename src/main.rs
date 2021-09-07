@@ -28,7 +28,8 @@ async fn fetch_json(json_endpoint: String) -> Result<String, Box<dyn std::error:
 }
 
 fn process_json(body: String) -> Option<String> {
-    if let Ok(converted_metrics) = payload::json_to_metrics(body) {
+    let json_payload = payload::Payload::new(body);
+    if let Ok(converted_metrics) = json_payload.json_to_metrics() {
         Some(converted_metrics
             .into_iter()
             .map(|metric| metric.to_string())
