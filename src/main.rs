@@ -19,19 +19,27 @@ async fn fetch_json(json_endpoint: String) -> Result<String, Box<dyn std::error:
     Ok(body)
 }
 
+fn process_json(body: String) -> Option<String> {
+    if let Ok(converted_metrics) = payload::json_to_metrics(body) {
+        Some(converted_metrics
+            .into_iter()
+            .map(|metric| metric.to_string())
+            .collect::<Vec<_>>()
+            .join("\n"))
+    }
+    else {
+        None
+    }
+}
+
 #[get("/metrics")]
 async fn metrics() -> status::Custom<content::Plain<String>> {
     let opts: Opts = Opts::parse();
-    match fetch_json(opts.json_endpoint).await {
+    match fetch_json(opts.json_endpoint.to_string()).await {
         Ok(body) => {
-            let metrics = payload::json_to_metrics(body)
-                        .unwrap()
-                        .into_iter()
-                        .map(|metric| metric.to_string())
-                        .collect::<Vec<_>>()
-                        .join("\n");
-
-            status::Custom(Status::Ok, content::Plain(metrics))
+            let error_message = format!("Endpoint {} provided invalid JSON\n", opts.json_endpoint);
+            process_json(body).map_or(status::Custom(Status::InternalServerError, content::Plain(error_message)),
+                |metrics| status::Custom(Status::Ok, content::Plain(metrics)))
         },
         Err(err) => {
             status::Custom(Status::InternalServerError, content::Plain(err.to_string()))
