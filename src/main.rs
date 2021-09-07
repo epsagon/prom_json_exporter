@@ -1,3 +1,4 @@
+use crate::config_file::ConfigFile;
 use clap::{AppSettings, Clap};
 use rocket::http::Status;
 use rocket::response::{content, status};
@@ -5,12 +6,17 @@ use rocket::response::{content, status};
 #[macro_use] extern crate rocket;
 
 mod payload;
+mod config_file;
 
 #[derive(Clap)]
 #[clap(version = "1.0", author = "Epsagon")]
 #[clap(setting = AppSettings::ColoredHelp)]
 struct Opts {
-    json_endpoint: String
+    json_endpoint: String,
+
+    //Path to overrides yaml file. Optional
+    #[clap(short='c', long="config", value_name="File")]
+    overrides :Option<String>
 }
 
 async fn fetch_json(json_endpoint: String) -> Result<String, Box<dyn std::error::Error>> {
@@ -47,10 +53,21 @@ async fn metrics() -> status::Custom<content::Plain<String>> {
     }
 }
 
+fn validate_config_file(opts: Opts) {
+    if let Some(config_path) = opts.overrides {
+        if let Err(err) = ConfigFile::validate_config_file(&config_path) {
+            eprintln!("ERR while loading config file: {:?}", err);
+            std::process::exit(1)
+        }
+    }
+}
+
 #[rocket::main]
 async fn main() -> Result<(), rocket::Error> {
     let opts: Opts = Opts::parse();
     println!("reading {}", opts.json_endpoint);
+    validate_config_file(opts);
+
 
     rocket::build()
     .mount("/", routes![metrics])
