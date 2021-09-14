@@ -2,14 +2,15 @@ use serde::Deserialize;
 use std::fs;
 
 #[derive(Deserialize)]
-pub struct MetricSelector {
+pub struct GlobalLabel {
     pub name: String,
     pub selector: String
 }
 
 #[derive(Deserialize)]
 pub struct ConfigFile {
-    pub gauge_field: String
+    pub gauge_field: String,
+    pub global_labels: Option<Vec<GlobalLabel>>
 }
 
 #[derive(Debug)]

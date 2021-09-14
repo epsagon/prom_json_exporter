@@ -2,18 +2,26 @@ use serde_json::{Value, Result};
 use convert_case::{Case, Casing};
 use std::collections::HashMap;
 use crate::config_file::ConfigFile;
+use crate::jq::Jq;
+use crate::prom_label::PromLabel;
 use crate::prom_metric::PromMetric;
 
 pub struct Payload {
-    json_payload: String,
-    config: ConfigFile
+    full_json_document: String,
+    payload_document: String,
+    config: ConfigFile,
 }
 
 impl Payload {
-    pub fn new(json: String, config: ConfigFile) -> Self {
+    pub fn new(json: String, json_entry_point: Option<String>, config: ConfigFile) -> Self {
+        let jq = Jq::new().unwrap();
+        let default_query = ".".to_string(); // `.` is the jq filter that returns the entire document
+        let payload_document = jq.resolve(&json, &json_entry_point.unwrap_or(default_query)).unwrap(); //TODO: "HANDLE THIS ERROR ACCORDINGLY"
+
         Self {
-            json_payload: json,
-            config: config
+            full_json_document: json,
+            config: config,
+            payload_document: payload_document
         }
     }
 
@@ -39,10 +47,26 @@ impl Payload {
         return None
     }
 
+    fn fetch_global_metric_labels(&self) -> Vec<PromLabel> {
+        let jq = Jq::new().unwrap();
+        let mut labels = vec!();
+        for global_label in self.config.global_labels.as_ref().unwrap() {
+            let raw_value = jq.resolve(&self.full_json_document, &global_label.selector).unwrap();
+            labels.push(PromLabel::new(global_label.name.to_string(), raw_value.trim().to_string()));
+        }
+        labels
+    }
+
     pub fn json_to_metrics(&self) -> Result<Vec<PromMetric>> {
-        let json_object: HashMap<String, Value> = serde_json::from_str(&self.json_payload)?;
+        let json_object: HashMap<String, Value> = serde_json::from_str(&self.payload_document)?;
 
         let mut metrics = vec![];
+
+        let global_labels = if self.config.global_labels.is_some() {
+            Some(self.fetch_global_metric_labels())
+        } else {
+            None
+        };
 
         for root_key in json_object {
             let root_key_name = root_key.0.to_case(Case::Snake);
@@ -53,7 +77,7 @@ impl Payload {
                 if child_key.0.eq(&self.config.gauge_field) {
                     if let Some(prom_value) = self.json_value_to_str(&child_key.1) {
                         let metric_name = format!("{}_{}", root_key_name, child_key.0.to_case(Case::Snake));
-                        metrics.push(PromMetric::new(metric_name, Some(prom_value), None));
+                        metrics.push(PromMetric::new(metric_name, Some(prom_value), global_labels.clone()));
                     }
                 }
             }
@@ -68,25 +92,58 @@ impl Payload {
 mod tests {
     use crate::{config_file::{self, ConfigFile}, payload::Payload};
 
-    fn json_with_single_property() -> String {
+    fn full_json_file() -> String {
         r#"{
-            "network": {
-                "status": "OK"
+            "environment": "production",
+            "id": "xyz",
+            "components": {
+                "network": {
+                    "status": "OK"
+                }
             }
         }"#.to_string()
     }
 
     fn config() -> ConfigFile {
-        let yaml_str = r#"gauge_field: status"#;
+        let yaml_str = r#"
+gauge_field: status
+global_labels:
+    - name: environment
+      selector: .environment
+    - name: id
+      selector: .id
+"#;
         config_file::ConfigFile::from_str(yaml_str).unwrap()
     }
 
+    /*
+    TODO
+    - Test what happens when no `json_entry_point` gets supplied
+    */
+
     #[test]
     fn convert_json_object_with_correct_status_field_config() {
-        let json_str = json_with_single_property();
-        let payload = Payload::new(json_str, config());
+        let json_str = full_json_file();
+        let payload = Payload::new(json_str, Some(".components".into()), config());
         let metrics = payload.json_to_metrics().unwrap();
         assert_eq!(metrics[0].name, "network_status");
         assert_eq!(metrics[0].value, Some("1".into()));
+    }
+
+    #[test]
+    fn convert_full_json_file_extract_global_labels() {
+        let json_str = full_json_file();
+        let payload = Payload::new(json_str, Some(".components".into()), config());
+        let metrics = payload.json_to_metrics().unwrap();
+        assert_eq!(metrics[0].name, "network_status");
+        assert_eq!(metrics[0].value, Some("1".into()));
+
+        let labels = metrics[0].labels.as_ref().unwrap();
+
+        let l1 = labels.into_iter().find(|l| l.name == "environment").unwrap();
+        assert_eq!(l1.value, "\"production\"");
+
+        let l2 = labels.into_iter().find(|l| l.name == "id").unwrap();
+        assert_eq!(l2.value, "\"xyz\"");
     }
 }

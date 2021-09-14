@@ -1,4 +1,3 @@
-use crate::jq::Jq;
 use crate::config_file::ConfigFile;
 use clap::{AppSettings, Clap};
 use rocket::http::Status;
@@ -26,23 +25,15 @@ struct Opts {
     entry_point: Option<String>
 }
 
-async fn fetch_json(json_endpoint: String, json_entry_point: Option<String>) -> Result<String, Box<dyn std::error::Error>> {
+async fn fetch_json(json_endpoint: String) -> Result<String, Box<dyn std::error::Error>> {
     let res = reqwest::get(json_endpoint).await?;
     let body = res.text().await?;
-    if let Some(json_entry_point) = json_entry_point {
-        let jq = Jq::new()?;
-        let json = jq.resolve(&body, &json_entry_point).expect("Failed to convert JSON");
-        Ok(json)
-    }
-    else {
-        Ok(body)
-    }
-
+    Ok(body)
 }
 
-fn process_json(config_file_path: &str, body: String) -> Option<String> {
+fn process_json(config_file_path: &str, json_entry_point: String, body: String) -> Option<String> {
     let config = ConfigFile::from_file(config_file_path).unwrap();
-    let json_payload = payload::Payload::new(body, config);
+    let json_payload = payload::Payload::new(body, Some(json_entry_point), config);
     if let Ok(converted_metrics) = json_payload.json_to_metrics() {
         Some(converted_metrics
             .into_iter()
@@ -58,10 +49,12 @@ fn process_json(config_file_path: &str, body: String) -> Option<String> {
 #[get("/metrics")]
 async fn metrics() -> status::Custom<content::Plain<String>> {
     let opts: Opts = Opts::parse();
-    match fetch_json(opts.json_endpoint.to_string(), opts.entry_point).await {
+    let entry_point = opts.entry_point.unwrap_or(".".to_string());
+
+    match fetch_json(opts.json_endpoint.to_string()).await {
         Ok(body) => {
             let error_message = format!("Endpoint {} provided invalid JSON\n", opts.json_endpoint);
-            process_json(&opts.overrides.unwrap(), body).map_or(status::Custom(Status::InternalServerError, content::Plain(error_message)),
+            process_json(&opts.overrides.unwrap(), entry_point, body).map_or(status::Custom(Status::InternalServerError, content::Plain(error_message)),
                 |metrics| status::Custom(Status::Ok, content::Plain(metrics)))
         },
         Err(err) => {
@@ -90,6 +83,7 @@ fn check_jq_exists() {
 async fn main() -> Result<(), rocket::Error> {
     let opts: Opts = Opts::parse();
     println!("reading {}", opts.json_endpoint);
+    validate_config_file(&opts);
     check_jq_exists();
 
     rocket::build()
