@@ -16,9 +16,9 @@ mod prom_label;
 struct Opts {
     json_endpoint: String,
 
-    //Path to overrides yaml file. Optional
-    // #[clap(short='c', long="config", value_name="File")]
-    // overrides :Option<String>
+    // Path to overrides yaml file. Optional
+    #[clap(short='c', long="config", value_name="File")]
+    overrides :Option<String>,
 
     #[clap(short='e', long="entrypoint", value_name="Entry Point")]
     entry_point: Option<String>
@@ -59,18 +59,19 @@ async fn metrics() -> status::Custom<content::Plain<String>> {
     }
 }
 
-// fn validate_config_file(opts: Opts) {
-//     if let Some(config_path) = opts.overrides {
-//         if let Err(err) = ConfigFile::validate_config_file(&config_path) {
-//             eprintln!("ERR while loading config file: {:?}", err);
-//             std::process::exit(1)
-//         }
-//     }
-// }
+fn validate_config_file(opts: &Opts) {
+    if let Some(config_path) = &opts.overrides {
+        if let Err(err) = ConfigFile::validate_config_file(&config_path) {
+            eprintln!("ERR while loading config file: {:?}", err);
+            std::process::exit(1)
+        }
+    }
+}
 
 #[rocket::main]
 async fn main() -> Result<(), rocket::Error> {
     let opts: Opts = Opts::parse();
+    validate_config_file(&opts);
     println!("reading {}", opts.json_endpoint);
 
     rocket::build()
