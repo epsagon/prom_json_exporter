@@ -10,6 +10,7 @@ pub struct Payload {
     full_json_document: String,
     payload_document: String,
     config: ConfigFile,
+    jq: Jq
 }
 
 impl Payload {
@@ -19,6 +20,7 @@ impl Payload {
         let payload_document = jq.resolve(&json, &json_entry_point.unwrap_or(default_query)).unwrap(); //TODO: "HANDLE THIS ERROR ACCORDINGLY"
 
         Self {
+            jq: jq,
             full_json_document: json,
             config: config,
             payload_document: payload_document
@@ -48,10 +50,9 @@ impl Payload {
     }
 
     fn fetch_global_metric_labels(&self) -> Vec<PromLabel> {
-        let jq = Jq::new().unwrap();
         let mut labels = vec!();
         for global_label in self.config.global_labels.as_ref().unwrap() {
-            let raw_value = jq.resolve(&self.full_json_document, &global_label.selector).unwrap();
+            let raw_value = self.jq.resolve(&self.full_json_document, &global_label.selector).unwrap();
             labels.push(PromLabel::new(global_label.name.to_string(), raw_value.trim().to_string()));
         }
         labels
