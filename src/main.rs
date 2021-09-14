@@ -40,8 +40,9 @@ async fn fetch_json(json_endpoint: String, json_entry_point: Option<String>) -> 
 
 }
 
-fn process_json(body: String) -> Option<String> {
-    let json_payload = payload::Payload::new(body);
+fn process_json(config_file_path: &str, body: String) -> Option<String> {
+    let config = ConfigFile::from_file(config_file_path).unwrap();
+    let json_payload = payload::Payload::new(body, config);
     if let Ok(converted_metrics) = json_payload.json_to_metrics() {
         Some(converted_metrics
             .into_iter()
@@ -60,7 +61,7 @@ async fn metrics() -> status::Custom<content::Plain<String>> {
     match fetch_json(opts.json_endpoint.to_string(), opts.entry_point).await {
         Ok(body) => {
             let error_message = format!("Endpoint {} provided invalid JSON\n", opts.json_endpoint);
-            process_json(body).map_or(status::Custom(Status::InternalServerError, content::Plain(error_message)),
+            process_json(&opts.overrides.unwrap(), body).map_or(status::Custom(Status::InternalServerError, content::Plain(error_message)),
                 |metrics| status::Custom(Status::Ok, content::Plain(metrics)))
         },
         Err(err) => {

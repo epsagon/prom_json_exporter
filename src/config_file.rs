@@ -9,7 +9,7 @@ pub struct MetricSelector {
 
 #[derive(Deserialize)]
 pub struct ConfigFile {
-    pub metrics: Vec<MetricSelector>
+    pub gauge_field: String
 }
 
 #[derive(Debug)]
@@ -19,13 +19,17 @@ pub enum ConfigError {
 }
 
 impl ConfigFile {
-    pub fn from_file(path: &str) -> Result<ConfigFile, ConfigError> {
-        let contents = fs::read_to_string(path)
-                        .or_else(|err| Err(ConfigError::IOError(err)))?;
-        let config :ConfigFile = serde_yaml::from_str(&contents)
+    pub fn from_str(yml_str: &str) -> Result<ConfigFile, ConfigError> {
+        let config :ConfigFile = serde_yaml::from_str(&yml_str)
             .or_else(|err| Err(ConfigError::YamlError(err)))?;
 
         Ok(config)
+    }
+
+    pub fn from_file(path: &str) -> Result<ConfigFile, ConfigError> {
+        let contents = fs::read_to_string(path)
+                        .or_else(|err| Err(ConfigError::IOError(err)))?;
+        ConfigFile::from_str(&contents)
     }
 
     pub fn validate_config_file(path: &str) -> Result<(), ConfigError> {
