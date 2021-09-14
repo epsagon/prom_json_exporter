@@ -1,9 +1,7 @@
-use serde_json::Map;
 use serde_json::{Value, Result};
 use convert_case::{Case, Casing};
 use std::collections::HashMap;
 use crate::config_file::ConfigFile;
-use crate::prom_label::PromLabel;
 use crate::prom_metric::PromMetric;
 
 pub struct Payload {
