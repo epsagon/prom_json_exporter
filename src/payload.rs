@@ -6,15 +6,13 @@ use crate::prom_label::PromLabel;
 use crate::prom_metric::PromMetric;
 
 pub struct Payload {
-    jq_query_string: Option<String>,
     json_payload: String
 }
 
 impl Payload {
-    pub fn new(json: String, jq_query_string: Option<String>) -> Self {
+    pub fn new(json: String) -> Self {
         Self {
-            json_payload: json,
-            jq_query_string: jq_query_string
+            json_payload: json
         }
     }
 
@@ -154,7 +152,7 @@ mod tests {
 
     #[test]
     fn simple_json_converts_numeric() {
-        let backend_metric = Payload::new(simple_json(), None).json_to_metrics().unwrap().into_iter()
+        let backend_metric = Payload::new(simple_json()).json_to_metrics().unwrap().into_iter()
                                 .find(|x| x.name == "backends")
                                 .unwrap();
 
@@ -164,7 +162,7 @@ mod tests {
 
     #[test]
     fn simple_json_converts_string() {
-        let uptime_metric = Payload::new(simple_json(), None).json_to_metrics().unwrap().into_iter()
+        let uptime_metric = Payload::new(simple_json()).json_to_metrics().unwrap().into_iter()
                                 .find(|x| x.name == "server_up")
                                 .unwrap();
 
@@ -174,7 +172,7 @@ mod tests {
 
     #[test]
     fn simple_json_converts_camel_case_to_snake_case() {
-        let uptime_metric = Payload::new(simple_json_with_camel_case(), None).json_to_metrics().unwrap().into_iter()
+        let uptime_metric = Payload::new(simple_json_with_camel_case()).json_to_metrics().unwrap().into_iter()
             .find(|x| x.name == "server_up")
             .unwrap();
 
@@ -184,7 +182,7 @@ mod tests {
 
     #[test]
     fn complex_json_converts_status() {
-        let uptime_metric = Payload::new(nested_json(), None).json_to_metrics().unwrap().into_iter()
+        let uptime_metric = Payload::new(nested_json()).json_to_metrics().unwrap().into_iter()
                                 .find(|x| x.name == "status")
                                 .unwrap();
 
@@ -194,7 +192,7 @@ mod tests {
 
     #[test]
     fn complex_json_converts_code() {
-        let uptime_metric = Payload::new(nested_json(), None).json_to_metrics().unwrap().into_iter()
+        let uptime_metric = Payload::new(nested_json()).json_to_metrics().unwrap().into_iter()
                                 .find(|x| x.name == "code")
                                 .unwrap();
 
@@ -204,7 +202,7 @@ mod tests {
 
     #[test]
     fn complex_json_convert_data_user_count_label() {
-        let metrics = Payload::new(nested_json(), None).json_to_metrics().unwrap();
+        let metrics = Payload::new(nested_json()).json_to_metrics().unwrap();
         let data_metric = metrics.into_iter()
                                 .find(|x| x.name == "data")
                                 .unwrap();
@@ -224,7 +222,7 @@ mod tests {
 
     #[test]
     fn complex_json_convert_user_count_active_label() {
-        let metrics = Payload::new(nested_json(), None).json_to_metrics().unwrap();
+        let metrics = Payload::new(nested_json()).json_to_metrics().unwrap();
         let data_metric = metrics.into_iter()
                                     .find(|x| x.name == "data")
                                     .unwrap();
@@ -241,7 +239,7 @@ mod tests {
 
     #[test]
     fn complex_json_convert_list_to_labels_has_three_metrics() {
-        let metrics = Payload::new(json_with_list(), None).json_to_metrics().unwrap();
+        let metrics = Payload::new(json_with_list()).json_to_metrics().unwrap();
         let values_metrics = metrics.into_iter()
                                     .filter(|x| x.name == "values");
         assert_eq!(values_metrics.count(), 3);
@@ -249,25 +247,12 @@ mod tests {
 
     #[test]
     fn complex_json_convert_list_to_labels_has_correct_number_of_labels() {
-        let metrics = Payload::new(json_with_list(), None).json_to_metrics().unwrap();
+        let metrics = Payload::new(json_with_list()).json_to_metrics().unwrap();
         let values_metrics = metrics.into_iter()
                                     .filter(|x| x.name == "values")
                                     .collect::<Vec<_>>();
 
         let values_metric = &values_metrics[0];
         assert_eq!(values_metric.labels.as_ref().unwrap().len(), 4);
-    }
-
-    #[test]
-    fn complex_json_with_specific_entry_point() {
-        let metrics = Payload::new(json_with_list(), Some("metrics".to_string())).json_to_metrics().unwrap();
-        let values_metrics = metrics.into_iter()
-                                    .filter(|x| x.name == "values")
-                                    .collect::<Vec<_>>();
-    }
-
-    #[test]
-    fn test_jq() {
-        jq_rs::run(".", "{\"foo\": \"bar\"}");
     }
 }

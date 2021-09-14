@@ -48,4 +48,10 @@ $ json_exporter -c overrides.yml <HTTP Endpoint serving JSON Data>
 ## Development
 
 - >= Rust 1.54
-- `brew install gcc automake libtool`
+- `brew install jq`
+
+## Production
+
+System requirements:
+
+- `jq`
