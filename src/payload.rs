@@ -50,42 +50,15 @@ impl Payload {
 
         for root_key in json_object {
             let root_key_name = root_key.0.to_case(Case::Snake);
-            let child_object = root_key.1.as_object().unwrap();
-
-            let mut new_metric = None;
-
-            let gauge_field = self.config.gauge_field.to_string();
-
-            let mut labels = vec!();
-
-            for child_key in child_object.iter().filter(|kv| kv.0.ne(&gauge_field)) {
-                if child_key.1.is_object() {
-                    //We skip objects by default to avoid deep nesting
-                    continue;
-                }
-                if child_key.1.is_number() || child_key.1.is_string() || child_key.1.is_boolean() {
-                    let label_name = child_key.0.to_case(Case::Snake);
-                    if let Some(prom_value) = utils::json_value_to_str(child_key.1) {
-                        labels.push(PromLabel::new(label_name, prom_value));
-                    }
-                }
+            let new_metric  = if root_key.1.is_object() {
+                self.visit_json_object(root_key, root_key_name, &global_labels)
             }
-
-            if let Some(gauge_field) = child_object.iter().find(|(name, _value)| name.to_string().eq(&gauge_field)) {
-                if let Some(prom_value) = utils::json_value_to_str(gauge_field.1) {
-                    let metric_name = format!("{}_{}", root_key_name, gauge_field.0.to_case(Case::Snake));
-
-                    let metric_labels = if labels.len() > 0 && global_labels.is_some() {
-                        let mut l = global_labels.clone().unwrap();
-                        l.append(&mut labels);
-                        Some(l)
-                    } else {
-                        global_labels.clone()
-                    };
-
-                    new_metric = Some(PromMetric::new(metric_name, Some(prom_value), metric_labels));
-                }
+            else if root_key.1.is_number() {
+                self.visit_number(root_key, &global_labels)
             }
+            else {
+                None
+            };
 
             if let Some(m) = new_metric {
                 metrics.push(m);
@@ -93,6 +66,50 @@ impl Payload {
         }
 
         Ok(metrics)
+    }
+
+    fn visit_number(&self, json_value: (String, Value), global_labels: &Option<Vec<PromLabel>>) -> Option<PromMetric> {
+        let metric_name = json_value.0.to_case(Case::Snake);
+        if let Some(num) = utils::json_number_to_str(&json_value.1) {
+            Some(PromMetric::new(metric_name, Some(num), global_labels.clone()))
+        } else {
+            None
+        }
+    }
+
+    fn visit_json_object(&self, root_key: (String, Value), root_key_name: String, global_labels: &Option<Vec<PromLabel>>) -> Option<PromMetric> {
+        let child_object = root_key.1.as_object().unwrap();
+        let mut new_metric = None;
+        let gauge_field = self.config.gauge_field.to_string();
+        let mut labels = vec!();
+        for child_key in child_object.iter().filter(|kv| kv.0.ne(&gauge_field)) {
+            if child_key.1.is_object() {
+                //We skip objects by default to avoid deep nesting
+                continue;
+            }
+            if child_key.1.is_number() || child_key.1.is_string() || child_key.1.is_boolean() {
+                let label_name = child_key.0.to_case(Case::Snake);
+                if let Some(prom_value) = utils::json_value_to_str(child_key.1) {
+                    labels.push(PromLabel::new(label_name, prom_value));
+                }
+            }
+        }
+        if let Some(gauge_field) = child_object.iter().find(|(name, _value)| name.to_string().eq(&gauge_field)) {
+            if let Some(prom_value) = utils::json_value_to_str(gauge_field.1) {
+                let metric_name = format!("{}_{}", root_key_name, gauge_field.0.to_case(Case::Snake));
+
+                let metric_labels = if labels.len() > 0 && global_labels.is_some() {
+                    let mut l = global_labels.clone().unwrap();
+                    l.append(&mut labels);
+                    Some(l)
+                } else {
+                    global_labels.clone()
+                };
+
+                new_metric = Some(PromMetric::new(metric_name, Some(prom_value), metric_labels));
+            }
+        }
+        new_metric
     }
 
 }
@@ -105,9 +122,26 @@ mod tests {
         r#"{
             "environment": "production",
             "id": "xyz",
+            "last_refresh_epoch": 1631046901,
             "components": {
                 "network": {
                     "status": "OK",
+                    "status_upstream": "active",
+                    "has_ip_addresses": true,
+                    "use_ip_v6": false,
+                    "upstream_endpoints": 54
+                }
+            }
+        }"#.to_string()
+    }
+
+    fn full_json_file_status_warning() -> String {
+        r#"{
+            "environment": "production",
+            "id": "xyz",
+            "components": {
+                "network": {
+                    "status": "Warning",
                     "status_upstream": "active",
                     "has_ip_addresses": true,
                     "use_ip_v6": false,
@@ -206,5 +240,25 @@ global_labels:
             "54",
             "false"
         ]);
+    }
+
+    #[test]
+    fn convert_full_json_with_root_entry_point_only_converts_numeric() {
+        let json_str = full_json_file();
+        let payload = Payload::new(json_str, Some(".".into()), config());
+        let metrics = payload.json_to_metrics().unwrap();
+        assert_eq!(metrics[0].name, "last_refresh_epoch");
+        assert_eq!(metrics[0].value, Some("1631046901".to_string()));
+    }
+
+    #[test]
+    fn convert_full_json_with_root_entry_point_has_global_attributes() {
+        let json_str = full_json_file();
+        let payload = Payload::new(json_str, Some(".".into()), config());
+        let metrics = payload.json_to_metrics().unwrap();
+        let labels = metrics[0].labels.as_ref().unwrap();
+
+        assert_eq!(labels[0].name, "environment");
+        assert_eq!(labels[1].name, "id");
     }
 }

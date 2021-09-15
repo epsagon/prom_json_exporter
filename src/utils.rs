@@ -1,5 +1,20 @@
 use serde_json::Value;
 
+pub fn json_number_to_str(value: &Value) -> Option<String> {
+    if value.is_f64() {
+        Some(value.as_f64().unwrap().to_string())
+    }
+    else if value.is_i64() {
+        Some(value.as_i64().unwrap().to_string())
+    }
+    else if value.is_u64() {
+        Some(value.as_u64().unwrap().to_string())
+    }
+    else {
+        None
+    }
+}
+
 pub fn json_value_to_str(value: &Value) -> Option<String> {
     if value.is_string() {
         let value_str = value.as_str().unwrap().to_lowercase();
@@ -16,11 +31,8 @@ pub fn json_value_to_str(value: &Value) -> Option<String> {
             return Some(value.to_string())
         }
     }
-    else if value.is_f64() {
-        return Some(value.as_f64().unwrap().to_string())
-    }
-    else if value.is_i64() {
-        return Some(value.as_i64().unwrap().to_string())
+    else if value.is_number() {
+        return json_number_to_str(value)
     }
     else if value.is_boolean() {
         return Some(value.as_bool().unwrap().to_string())

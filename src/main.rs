@@ -20,7 +20,7 @@ struct Opts {
 
     // Path to overrides yaml file. Optional
     #[clap(short='c', long="config", value_name="File")]
-    overrides :Option<String>,
+    overrides: String,
 
     #[clap(short='e', long="entrypoint", value_name="Entry Point in jq notation (e.g. \".components\")")]
     entry_point: Option<String>
@@ -55,7 +55,7 @@ async fn metrics() -> status::Custom<content::Plain<String>> {
     match fetch_json(opts.json_endpoint.to_string()).await {
         Ok(body) => {
             let error_message = format!("Endpoint {} provided invalid JSON\n", opts.json_endpoint);
-            process_json(&opts.overrides.unwrap(), entry_point, body).map_or(status::Custom(Status::InternalServerError, content::Plain(error_message)),
+            process_json(&opts.overrides, entry_point, body).map_or(status::Custom(Status::InternalServerError, content::Plain(error_message)),
                 |metrics| status::Custom(Status::Ok, content::Plain(metrics)))
         },
         Err(err) => {
@@ -65,11 +65,9 @@ async fn metrics() -> status::Custom<content::Plain<String>> {
 }
 
 fn validate_config_file(opts: &Opts) {
-    if let Some(config_path) = &opts.overrides {
-        if let Err(err) = ConfigFile::validate_config_file(&config_path) {
-            eprintln!("ERR while loading config file: {:?}", err);
-            std::process::exit(1)
-        }
+    if let Err(err) = ConfigFile::validate_config_file(&opts.overrides) {
+        eprintln!("ERR while loading config file: {:?}", err);
+        std::process::exit(1)
     }
 }
 
