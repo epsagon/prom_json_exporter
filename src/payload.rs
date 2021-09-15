@@ -139,7 +139,12 @@ mod tests {
         r#"{
             "last_refresh_epoch": 1631046901,
             "api_http_requests_total": 456,
-            "http_requests": 2
+            "http_requests": 2,
+            "components": {
+                "http_server": {
+                    "up": true
+                }
+            }
         }"#.to_string()
     }
 
@@ -182,6 +187,16 @@ global_labels:
             "http_requests",
             "last_refresh_epoch"
         ]);
+    }
+
+    #[test]
+    fn convert_json_object_no_entry_point_does_not_convert_child_object() {
+        let json_str = json_with_numeric_values();
+        let payload = Payload::new(json_str, None, config());
+        let metrics = payload.json_to_metrics().unwrap();
+        let component_metric = metrics.iter().find(|m| m.name == "components");
+
+        assert!(component_metric.is_none());
     }
 
     #[test]
