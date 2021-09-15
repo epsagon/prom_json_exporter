@@ -10,6 +10,7 @@ mod config_file;
 mod prom_metric;
 mod prom_label;
 mod jq;
+mod utils;
 
 #[derive(Clap)]
 #[clap(version = "1.0", author = "Epsagon")]

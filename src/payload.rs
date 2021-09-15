@@ -5,6 +5,7 @@ use crate::config_file::ConfigFile;
 use crate::jq::Jq;
 use crate::prom_label::PromLabel;
 use crate::prom_metric::PromMetric;
+use crate::utils;
 
 pub struct Payload {
     full_json_document: String,
@@ -25,28 +26,6 @@ impl Payload {
             config: config,
             payload_document: payload_document
         }
-    }
-
-    fn json_value_to_str(&self, value: &Value) -> Option<String> {
-        if value.is_string() {
-            let value_str = value.as_str().unwrap().to_lowercase();
-            if value_str == "ok" {
-                return Some("1".into())
-            }
-            else if value == "error" {
-                return Some("0".into())
-            }
-            else {
-                return None;
-            }
-        }
-        else if value.is_f64() {
-            return Some(value.as_f64().unwrap().to_string())
-        }
-        else if value.is_i64() {
-            return Some(value.as_i64().unwrap().to_string())
-        }
-        return None
     }
 
     fn fetch_global_metric_labels(&self) -> Vec<PromLabel> {
@@ -112,7 +91,7 @@ impl Payload {
             }
 
             if let Some(gauge_field) = child_object.iter().find(|(name, _value)| name.to_string().eq(&gauge_field)) {
-                if let Some(prom_value) = self.json_value_to_str(gauge_field.1) {
+                if let Some(prom_value) = utils::json_value_to_str(gauge_field.1) {
                     let metric_name = format!("{}_{}", root_key_name, gauge_field.0.to_case(Case::Snake));
 
                     let metric_labels = if labels.len() > 0 && global_labels.is_some() {
