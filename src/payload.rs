@@ -65,28 +65,9 @@ impl Payload {
                 }
                 if child_key.1.is_number() || child_key.1.is_string() || child_key.1.is_boolean() {
                     let label_name = child_key.0.to_case(Case::Snake);
-                    let prom_value = if child_key.1.is_f64() {
-                        child_key.1
-                            .as_f64()
-                            .unwrap()
-                            .to_string()
+                    if let Some(prom_value) = utils::json_value_to_str(child_key.1) {
+                        labels.push(PromLabel::new(label_name, prom_value));
                     }
-                    else if child_key.1.is_i64() {
-                        child_key.1
-                                .as_i64()
-                                .unwrap()
-                                .to_string()
-                    }
-                    else if child_key.1.is_boolean() {
-                        child_key.1
-                                .as_bool()
-                                .unwrap()
-                                .to_string()
-                    }
-                    else {
-                        child_key.1.to_string()
-                    };
-                    labels.push(PromLabel::new(label_name, prom_value));
                 }
             }
 
@@ -101,7 +82,6 @@ impl Payload {
                     } else {
                         global_labels.clone()
                     };
-
 
                     new_metric = Some(PromMetric::new(metric_name, Some(prom_value), metric_labels));
                 }
