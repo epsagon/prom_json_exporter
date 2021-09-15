@@ -135,19 +135,11 @@ mod tests {
         }"#.to_string()
     }
 
-    fn full_json_file_status_warning() -> String {
+    fn json_with_numeric_values() -> String {
         r#"{
-            "environment": "production",
-            "id": "xyz",
-            "components": {
-                "network": {
-                    "status": "Warning",
-                    "status_upstream": "active",
-                    "has_ip_addresses": true,
-                    "use_ip_v6": false,
-                    "upstream_endpoints": 54
-                }
-            }
+            "last_refresh_epoch": 1631046901,
+            "api_http_requests_total": 456,
+            "http_requests": 2
         }"#.to_string()
     }
 
@@ -173,6 +165,24 @@ global_labels:
     TODO
     - Test what happens when no `json_entry_point` gets supplied
     */
+    #[test]
+    fn convert_json_object_no_entry_point() {
+        let json_str = json_with_numeric_values();
+        let payload = Payload::new(json_str, None, config());
+        let mut payload_names= payload.json_to_metrics()
+                                        .unwrap()
+                                        .iter()
+                                        .map(|metric| metric.name.to_string())
+                                        .collect::<Vec<_>>();
+
+        payload_names.sort_by(|a, b| a.cmp(&b));
+
+        assert_eq!(payload_names, vec![
+            "api_http_requests_total",
+            "http_requests",
+            "last_refresh_epoch"
+        ]);
+    }
 
     #[test]
     fn convert_json_object_with_correct_status_field_config() {
