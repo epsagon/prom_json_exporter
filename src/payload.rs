@@ -1,11 +1,64 @@
-use serde_json::{Value, Result};
+use serde_json::Value;
 use convert_case::{Case, Casing};
 use std::collections::HashMap;
 use crate::config_file::ConfigFile;
-use crate::jq::Jq;
+use crate::jq::{Jq, JqError};
 use crate::prom_label::PromLabel;
 use crate::prom_metric::PromMetric;
 use crate::utils;
+
+#[derive(Debug)]
+pub struct SelectorError{
+    pub message: String,
+    cause: Option<JqError>
+}
+
+impl SelectorError {
+    pub fn new(message: &str, cause: Option<JqError>) -> Self {
+        Self {
+            message: message.to_string(),
+            cause: cause
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum PayloadError {
+    JsonError(serde_json::Error),
+    SelectorError(SelectorError)
+}
+
+impl From<serde_json::Error> for PayloadError {
+    fn from(err: serde_json::Error) -> Self {
+        PayloadError::JsonError(err)
+    }
+}
+
+impl From<SelectorError> for PayloadError {
+    fn from(err: SelectorError) -> Self {
+        PayloadError::SelectorError(err)
+    }
+}
+
+impl std::error::Error for SelectorError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        None
+    }
+
+    fn description(&self) -> &str {
+        &self.message
+    }
+
+    fn cause(&self) -> Option<&dyn std::error::Error> {
+        self.source()
+    }
+}
+
+impl std::fmt::Display for SelectorError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
 
 pub struct Payload {
     full_json_document: String,
@@ -18,7 +71,7 @@ impl Payload {
     pub fn new(json: String, json_entry_point: Option<String>, config: ConfigFile) -> Self {
         let jq = Jq::new().unwrap();
         let default_query = ".".to_string(); // `.` is the jq filter that returns the entire document
-        let payload_document = jq.resolve(&json, &json_entry_point.unwrap_or(default_query)).unwrap(); //TODO: "HANDLE THIS ERROR ACCORDINGLY"
+        let payload_document = jq.resolve_raw(&json, &json_entry_point.unwrap_or(default_query)).unwrap(); //TODO: "HANDLE THIS ERROR ACCORDINGLY"
 
         Self {
             jq: jq,
@@ -28,22 +81,29 @@ impl Payload {
         }
     }
 
-    fn fetch_global_metric_labels(&self) -> Vec<PromLabel> {
+    fn fetch_global_metric_labels(&self) -> Result<Vec<PromLabel>, SelectorError> {
         let mut labels = vec!();
         for global_label in self.config.global_labels.as_ref().unwrap() {
-            let raw_value = self.jq.resolve(&self.full_json_document, &global_label.selector).unwrap();
-            labels.push(PromLabel::new(global_label.name.to_string(), raw_value.trim().to_string()));
+            let raw_value = self.jq.resolve_json_scalar_value(
+                &self.full_json_document,
+                &global_label.selector
+            );
+
+            match raw_value {
+                Ok(val) => labels.push(PromLabel::new(global_label.name.to_string(), val.trim().to_string())),
+                Err(err) => return Err(SelectorError::new("Failed to fetch global metric", Some(err)))
+            }
         }
-        labels
+        Ok(labels)
     }
 
-    pub fn json_to_metrics(&self) -> Result<Vec<PromMetric>> {
+    pub fn json_to_metrics(&self) -> Result<Vec<PromMetric>, PayloadError> {
         let json_object: HashMap<String, Value> = serde_json::from_str(&self.payload_document)?;
 
         let mut metrics = vec![];
 
         let global_labels = if self.config.global_labels.is_some() {
-            Some(self.fetch_global_metric_labels())
+            Some(self.fetch_global_metric_labels()?)
         } else {
             None
         };
@@ -70,7 +130,7 @@ impl Payload {
 
     fn visit_number(&self, json_value: (String, Value), global_labels: &Option<Vec<PromLabel>>) -> Option<PromMetric> {
         let metric_name = json_value.0.to_case(Case::Snake);
-        if let Some(num) = utils::json_number_to_str(&json_value.1) {
+        if let Some(num) = utils::json_number_to_i64(&json_value.1) {
             Some(PromMetric::new(metric_name, Some(num), global_labels.clone()))
         } else {
             None
@@ -83,10 +143,6 @@ impl Payload {
         let gauge_field = self.config.gauge_field.to_string();
         let mut labels = vec!();
         for child_key in child_object.iter().filter(|kv| kv.0.ne(&gauge_field)) {
-            if child_key.1.is_object() {
-                //We skip objects by default to avoid deep nesting
-                continue;
-            }
             if child_key.1.is_number() || child_key.1.is_string() || child_key.1.is_boolean() {
                 let label_name = child_key.0.to_case(Case::Snake);
                 if let Some(prom_value) = utils::json_value_to_str(child_key.1) {
@@ -95,7 +151,7 @@ impl Payload {
             }
         }
         if let Some(gauge_field) = child_object.iter().find(|(name, _value)| name.to_string().eq(&gauge_field)) {
-            if let Some(prom_value) = utils::json_value_to_str(gauge_field.1) {
+            if let Some(prom_value) = utils::json_value_to_i64(gauge_field.1) {
                 let metric_name = format!("{}_{}", root_key_name, gauge_field.0.to_case(Case::Snake));
 
                 let metric_labels = if labels.len() > 0 && global_labels.is_some() {
@@ -118,6 +174,8 @@ impl Payload {
 mod tests {
     use crate::{config_file::{self, ConfigFile}, payload::Payload, prom_metric::PromMetric};
 
+    use super::PayloadError;
+
     fn full_json_file() -> String {
         r#"{
             "environment": "production",
@@ -137,6 +195,8 @@ mod tests {
 
     fn json_with_numeric_values() -> String {
         r#"{
+            "environment": "production",
+            "id": "xyz",
             "last_refresh_epoch": 1631046901,
             "api_http_requests_total": 456,
             "http_requests": 2,
@@ -154,6 +214,18 @@ gauge_field: status
 global_labels:
     - name: environment
       selector: .environment
+    - name: id
+      selector: .id
+"#;
+        config_file::ConfigFile::from_str(yaml_str).unwrap()
+    }
+
+    fn config_with_non_existing_global_labels() -> ConfigFile {
+        let yaml_str = r#"
+gauge_field: status
+global_labels:
+    - name: Does not exist
+      selector: .does_not_exist
     - name: id
       selector: .id
 "#;
@@ -190,6 +262,22 @@ global_labels:
     }
 
     #[test]
+    fn convert_json_object_invalid_global_label_selector() {
+        //We want to test what happens when we try to fetch global labels from the json
+        //that do not exist
+        let json_str = json_with_numeric_values();
+        let payload = Payload::new(json_str, None, config_with_non_existing_global_labels());
+        match payload.json_to_metrics().unwrap_err() {
+            PayloadError::SelectorError(err) => {
+                assert!(err.cause.is_some());
+            },
+            _ => {
+                assert!(false);
+            }
+        }
+    }
+
+    #[test]
     fn convert_json_object_no_entry_point_does_not_convert_child_object() {
         let json_str = json_with_numeric_values();
         let payload = Payload::new(json_str, None, config());
@@ -203,22 +291,22 @@ global_labels:
     fn convert_json_object_with_correct_status_field_config() {
         let metrics = create_metrics();
         assert_eq!(metrics[0].name, "network_status");
-        assert_eq!(metrics[0].value, Some("1".into()));
+        assert_eq!(metrics[0].value, Some(1));
     }
 
     #[test]
     fn convert_full_json_file_extract_global_labels() {
         let metrics = create_metrics();
         assert_eq!(metrics[0].name, "network_status");
-        assert_eq!(metrics[0].value, Some("1".into()));
+        assert_eq!(metrics[0].value, Some(1));
 
         let labels = metrics[0].labels.as_ref().unwrap();
 
         let l1 = labels.into_iter().find(|l| l.name == "environment").unwrap();
-        assert_eq!(l1.value, "\"production\"");
+        assert_eq!(l1.value, "production");
 
         let l2 = labels.into_iter().find(|l| l.name == "id").unwrap();
-        assert_eq!(l2.value, "\"xyz\"");
+        assert_eq!(l2.value, "xyz");
     }
 
     #[test]
@@ -258,10 +346,10 @@ global_labels:
                                     .map(|label| label.value.to_string())
                                     .collect::<Vec<_>>();
         assert_eq!(values, vec![
-            "\"production\"",
+            "production",
             "true",
-            "\"xyz\"",
-            "\"active\"",
+            "xyz",
+            "active",
             "54",
             "false"
         ]);
@@ -273,7 +361,7 @@ global_labels:
         let payload = Payload::new(json_str, Some(".".into()), config());
         let metrics = payload.json_to_metrics().unwrap();
         assert_eq!(metrics[0].name, "last_refresh_epoch");
-        assert_eq!(metrics[0].value, Some("1631046901".to_string()));
+        assert_eq!(metrics[0].value, Some(1631046901));
     }
 
     #[test]
