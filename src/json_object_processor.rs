@@ -39,13 +39,7 @@ impl JsonObjectProcessor {
         labels.append(&mut self.extract_labels(config, &self.child_object));
         let gauge_field = self.child_object.iter().find(|(name, _value)| name.to_string().eq(&gauge_field_name))?;
         let mut metrics = vec!();
-        let metric_labels = if labels.len() > 0 && self.global_labels.is_some() {
-            let mut l = self.global_labels.clone().unwrap();
-            l.append(&mut labels);
-            Some(l)
-        } else {
-            self.global_labels.clone()
-        };
+        let metric_labels = self.generate_metric_labels(labels);
         if let Some(gauge_field_values) = &config.gauge_field_values {
             return self.gauge_field_values_to_metrics(
                             gauge_field_name,
@@ -61,12 +55,7 @@ impl JsonObjectProcessor {
         Some(metrics)
     }
 
-    fn single_metric_strategy(&self, config: &ConfigFile) -> Option<PromMetric> {
-        let gauge_field = config.gauge_field.to_string();
-        let mut labels = vec!();
-        labels.append(&mut self.extract_labels(config, &self.child_object));
-        let gauge_field = self.child_object.iter().find(|(name, _value)| name.to_string().eq(&gauge_field))?;
-        let prom_value = utils::json_value_to_i64(gauge_field.1)?;
+    fn generate_metric_labels(&self, mut labels: Vec<PromLabel>) -> Option<Vec<PromLabel>> {
         let metric_labels = if labels.len() > 0 && self.global_labels.is_some() {
             let mut l = self.global_labels.clone().unwrap();
             l.append(&mut labels);
@@ -74,6 +63,16 @@ impl JsonObjectProcessor {
         } else {
             self.global_labels.clone()
         };
+        metric_labels
+    }
+
+    fn single_metric_strategy(&self, config: &ConfigFile) -> Option<PromMetric> {
+        let gauge_config_field_name = config.gauge_field.to_string();
+        let mut labels = vec!();
+        labels.append(&mut self.extract_labels(config, &self.child_object));
+        let gauge_field = self.child_object.iter().find(|(name, _value)| name.to_string().eq(&gauge_config_field_name))?;
+        let prom_value = utils::json_value_to_i64(gauge_field.1)?;
+        let metric_labels = self.generate_metric_labels(labels);
         Some(PromMetric::new(self.metric_name(gauge_field), Some(prom_value), metric_labels))
     }
 
