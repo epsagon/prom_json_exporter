@@ -28,7 +28,7 @@ impl ToString for PromMetric {
                 .as_ref()
                 .unwrap()
                 .iter()
-                .map(|label| format!("{}={}", label.name, label.value))
+                .map(|label| label.to_string())
                 .collect::<Vec<_>>()
                 .join(",");
 
