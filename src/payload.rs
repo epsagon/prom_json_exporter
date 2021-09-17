@@ -48,7 +48,6 @@ impl Payload {
 
     pub fn json_to_metrics(&self) -> Result<Vec<PromMetric>, PayloadError> {
         let json_object: HashMap<String, Value> = serde_json::from_str(&self.payload_document)?;
-
         let mut metrics = vec![];
 
         let global_labels = if self.config.global_labels.is_some() {
@@ -58,19 +57,15 @@ impl Payload {
         };
 
         for root_key in json_object {
-            let root_key_name = root_key.0.to_case(Case::Snake);
-            let new_metric  = if root_key.1.is_object() {
-                self.visit_json_object(root_key, root_key_name, &global_labels)
+            if root_key.1.is_object() {
+                if let Some(m) = self.visit_json_object(root_key, &global_labels) {
+                    metrics.push(m);
+                }
             }
             else if root_key.1.is_number() {
-                self.visit_number(root_key, &global_labels)
-            }
-            else {
-                None
-            };
-
-            if let Some(m) = new_metric {
-                metrics.push(m);
+                if let Some(m) = self.visit_number(root_key, &global_labels) {
+                    metrics.push(m);
+                }
             }
         }
 
@@ -86,11 +81,30 @@ impl Payload {
         }
     }
 
-    fn visit_json_object(&self, root_key: (String, Value), root_key_name: String, global_labels: &Option<Vec<PromLabel>>) -> Option<PromMetric> {
-        let child_object = root_key.1.as_object().unwrap();
-        let mut new_metric = None;
+    fn visit_json_object(&self, json_object: (String, Value), global_labels: &Option<Vec<PromLabel>>) -> Option<PromMetric> {
+        let root_key_name = json_object.0.to_case(Case::Snake);
+        let child_object = json_object.1.as_object()?;
         let gauge_field = self.config.gauge_field.to_string();
         let mut labels = vec!();
+        labels.append(&mut self.extract_labels(child_object));
+        let gauge_field = child_object.iter().find(|(name, _value)| name.to_string().eq(&gauge_field))?;
+        let prom_value = utils::json_value_to_i64(gauge_field.1)?;
+        let metric_name = format!("{}_{}", root_key_name, gauge_field.0.to_case(Case::Snake));
+
+        let metric_labels = if labels.len() > 0 && global_labels.is_some() {
+            let mut l = global_labels.clone().unwrap();
+            l.append(&mut labels);
+            Some(l)
+        } else {
+            global_labels.clone()
+        };
+
+        Some(PromMetric::new(metric_name, Some(prom_value), metric_labels))
+    }
+
+    fn extract_labels(&self, child_object: &serde_json::Map<String, Value>) -> Vec<PromLabel> {
+        let gauge_field = self.config.gauge_field.to_string();
+        let mut labels = vec!(); //Vec<PromLabel>;
         for child_key in child_object.iter().filter(|kv| kv.0.ne(&gauge_field)) {
             if child_key.1.is_number() || child_key.1.is_string() || child_key.1.is_boolean() {
                 let label_name = child_key.0.to_case(Case::Snake);
@@ -99,25 +113,11 @@ impl Payload {
                 }
             }
         }
-        if let Some(gauge_field) = child_object.iter().find(|(name, _value)| name.to_string().eq(&gauge_field)) {
-            if let Some(prom_value) = utils::json_value_to_i64(gauge_field.1) {
-                let metric_name = format!("{}_{}", root_key_name, gauge_field.0.to_case(Case::Snake));
 
-                let metric_labels = if labels.len() > 0 && global_labels.is_some() {
-                    let mut l = global_labels.clone().unwrap();
-                    l.append(&mut labels);
-                    Some(l)
-                } else {
-                    global_labels.clone()
-                };
-
-                new_metric = Some(PromMetric::new(metric_name, Some(prom_value), metric_labels));
-            }
-        }
-        new_metric
+        labels
     }
-
 }
+
 
 #[cfg(test)]
 mod tests {
