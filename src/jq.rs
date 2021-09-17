@@ -7,6 +7,7 @@ use std::io::prelude::*;
 
 use crate::utils;
 
+#[derive(Clone)]
 pub struct Jq {}
 
 impl Jq {
