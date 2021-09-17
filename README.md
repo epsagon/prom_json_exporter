@@ -2,47 +2,148 @@
 
 Prometheus requires metrics to be exposed in its own format. This exporter automatically converts a JSON endpoint to Prometheus metrics.
 
+Instead of configuring yaml for each individual JSON property, `json_exporter` automatically converts json properties into a metric if it's a number.
+
+For instance:
+
+```json
+{
+  "last_refresh_epoch": 1631046901,
+  "num_http_requests": 13
+}
+```
+
+gets automatically transformed into:
+
+```
+last_refresh_epoch 1631046901,
+num_http_requests: 13
+```
+
+If your JSON response contains properties with values other than numbers or booleans, json_exporter ignores them by default.
+It is possible, however, to leverage these properties to add additional context to a single metric.
+
 ## Usage
 
 ```bash
-$ json_exporter <HTTP Endpoint serving JSON Data>
+$ json_exporter <HTTP Endpoint serving JSON Data> -c config.yml
 ```
 
-## Yaml Overrides
+## Configuration
+
+As mentioned before, JSON properties with numeric or boolean values get converted automatically. JSON responses with a more complex structure require additional configuration.
 
 Consider this JSON:
 
 ```json
-{"status":"success","code":0,"data":{"UserCount":140,"UserCountActive":23}}
+{
+  "environment": "production",
+  "id": "xyz",
+  "last_refresh_epoch": 1631046901,
+  "components": {
+      "network": {
+          "status": "OK",
+          "status_upstream": "active",
+          "has_ip_addresses": true,
+          "use_ip_v6": false,
+          "upstream_endpoints": 54
+      },
+      "router": {
+          "status": "Warning",
+          "num_active_uplinks": 1,
+          "num_uplinks": 2
+      }
+  }
+}
 ```
 
-It automatically gets transformed to:
+By default, only `last_refresh_epoch` gets transformed into a metric:
 
 ```
-data{user_count=140,user_count_active=23}
+last_refresh_epoch 1631046901
 ```
 
-If you'd like to change the metrics to:
+### Labels
+
+To add more context, in your yaml configuration file, please add:
 
 ```
-data_user_count 140
-data_user_count_active 23
+global_labels:
+  - name: environment
+    selector: .environment
+  - name: id
+    selector: .id
 ```
 
-Create a new `overrides.yml`:
+Which then will result in metrics with labels:
+
+```
+last_refresh_epoch{environment="production",id="xyz"} 1631046901
+num_requests{environment="production",id="xyz"} 42
+```
+
+`name` defines the label name, `selector` must contain a valid `jq` filter.
+
+### Converting nested objects
+
+It is possible to convert nested objects.
+
+```json
+{
+    "environment": "production",
+    "id": "xyz",
+    "last_refresh_epoch": 1631046901,
+    "num_requests": 42,
+    "components": {
+        "network": {
+            "status": "OK",
+            "status_upstream": "active",
+            "has_ip_addresses": true,
+            "use_ip_v6": false,
+            "upstream_endpoints": 54
+        },
+        "router": {
+            "status": "Warning",
+            "num_active_uplinks": 1,
+            "num_uplinks": 2
+        }
+    }
+}
+```
+
+To convert `network` and `router` from the above example, your configuration file needs to look like this:
 
 ```yaml
-metrics:
-  - name: data_user_count
-    selector: "{.data.UserCount}"
-  - name: data_user_count_active
-    selector: "{.data.UserCountActive}"
+gauge_field: status
+global_labels:
+  - name: environment
+    selector: .environment
+  - name: id
+    selector: .id
+gauge_field_values:
+  - warning
+  - critical
+  - ok
 ```
 
-and when invoking `json_exporter`, provide it as argument:
+`gauge_field` tells json_exporter which field to convert into a gauge value. Without any further configuration, if `gauge_field` contains a number, `"OK"` or `"ERROR"`, will be automatically converted.
 
-```bash
-$ json_exporter -c overrides.yml <HTTP Endpoint serving JSON Data>
+If `gauge_field` contains any other values, please configure `gauge_field_values`. For each entry in `gauge_field_values`, you will receive one metric:
+
+```
+router_status{environment="production",id="xyz",num_active_uplinks=1,num_uplinks=2,status="warning"} 1
+router_status{environment="production",id="xyz",num_active_uplinks=1,num_uplinks=2,status="critical"} 0
+router_status{environment="production",id="xyz",num_active_uplinks=1,num_uplinks=2,status="ok"} 0
+
+network_status{environment="production",id="xyz",status_upstream="active",has_ip_addresses=true,use_ip_v6=false,upstream_endpoints=54,status="warning"} 0
+network_status{environment="production",id="xyz",status_upstream="active",has_ip_addresses=true,use_ip_v6=false,upstream_endpoints=54,status="critical"} 0
+network_status{environment="production",id="xyz",status_upstream="active",has_ip_addresses=true,use_ip_v6=false,upstream_endpoints=54,status="ok"} 1
+```
+
+If the values are nested, you need to provide an entry point in `jq` notation:
+
+```
+$json_exporter http://localhost:8800/json -c config.yaml -e ".components"
 ```
 
 ## Development
@@ -54,4 +155,8 @@ $ json_exporter -c overrides.yml <HTTP Endpoint serving JSON Data>
 
 System requirements:
 
-- `jq`
+- `jq` needs to be present in `$PATH`
+
+## License
+
+MIT
