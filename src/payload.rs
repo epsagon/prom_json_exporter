@@ -3,6 +3,7 @@ use convert_case::{Case, Casing};
 use std::collections::HashMap;
 use crate::config_file::ConfigFile;
 use crate::jq::Jq;
+use crate::json_object_processor::JsonObjectProcessor;
 use crate::prom_label::PromLabel;
 use crate::prom_metric::PromMetric;
 use crate::utils;
@@ -58,7 +59,8 @@ impl Payload {
 
         for root_key in json_object {
             if root_key.1.is_object() {
-                if let Some(m) = self.visit_json_object(root_key, &global_labels) {
+                let processor = JsonObjectProcessor::new(root_key.0, root_key.1, global_labels.clone()).unwrap();
+                if let Some(m) = processor.visit(&self.config) {
                     metrics.push(m);
                 }
             }
@@ -79,42 +81,6 @@ impl Payload {
         } else {
             None
         }
-    }
-
-    fn visit_json_object(&self, json_object: (String, Value), global_labels: &Option<Vec<PromLabel>>) -> Option<PromMetric> {
-        let root_key_name = json_object.0.to_case(Case::Snake);
-        let child_object = json_object.1.as_object()?;
-        let gauge_field = self.config.gauge_field.to_string();
-        let mut labels = vec!();
-        labels.append(&mut self.extract_labels(child_object));
-        let gauge_field = child_object.iter().find(|(name, _value)| name.to_string().eq(&gauge_field))?;
-        let prom_value = utils::json_value_to_i64(gauge_field.1)?;
-        let metric_name = format!("{}_{}", root_key_name, gauge_field.0.to_case(Case::Snake));
-
-        let metric_labels = if labels.len() > 0 && global_labels.is_some() {
-            let mut l = global_labels.clone().unwrap();
-            l.append(&mut labels);
-            Some(l)
-        } else {
-            global_labels.clone()
-        };
-
-        Some(PromMetric::new(metric_name, Some(prom_value), metric_labels))
-    }
-
-    fn extract_labels(&self, child_object: &serde_json::Map<String, Value>) -> Vec<PromLabel> {
-        let gauge_field = self.config.gauge_field.to_string();
-        let mut labels = vec!(); //Vec<PromLabel>;
-        for child_key in child_object.iter().filter(|kv| kv.0.ne(&gauge_field)) {
-            if child_key.1.is_number() || child_key.1.is_string() || child_key.1.is_boolean() {
-                let label_name = child_key.0.to_case(Case::Snake);
-                if let Some(prom_value) = utils::json_value_to_str(child_key.1) {
-                    labels.push(PromLabel::new(label_name, prom_value));
-                }
-            }
-        }
-
-        labels
     }
 }
 
