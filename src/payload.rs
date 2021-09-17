@@ -330,6 +330,39 @@ global_labels:
         let json_str = json_with_several_components();
         let payload = Payload::new(json_str, Some(".components".into()), config_with_gauge_mapping());
         let metrics = payload.json_to_metrics().unwrap();
-        assert_eq!(metrics.len(), 2);
+        assert_eq!(metrics.len(), 4);
+    }
+
+    #[test]
+    fn convert_json_ensure_metric_per_gauge_value_has_correct_label() {
+        let json_str = json_with_several_components();
+        let payload = Payload::new(json_str, Some(".components".into()), config_with_gauge_mapping());
+        let metrics = payload.json_to_metrics().unwrap();
+
+        let first = metrics[0].labels.as_ref().unwrap();
+        let second = metrics[1].labels.as_ref().unwrap();
+
+        let first_status = first.iter().find(|label| label.name == "status");
+        assert_eq!(first_status.unwrap().value, "warning");
+        let second_status = second.iter().find(|label| label.name == "status");
+        assert_eq!(second_status.unwrap().value, "ok");
+    }
+
+    #[test]
+    fn convert_json_ensure_metric_per_gauge_value_has_correct_flag() {
+        let json_str = json_with_several_components();
+        let payload = Payload::new(json_str, Some(".components".into()), config_with_gauge_mapping());
+        let metrics = payload.json_to_metrics().unwrap();
+
+        assert_eq!(metrics.len(), 4);
+
+        let router_metrics = metrics.iter().filter(|m| m.name == "router_status").collect::<Vec<_>>();
+        assert_eq!(router_metrics.len(), 2);
+
+        let has_one_flag = router_metrics.iter().any(|m| m.value == Some(1));
+        let has_zero_flag = router_metrics.iter().any(|m| m.value == Some(0));
+
+        assert!(has_one_flag);
+        assert!(has_zero_flag);
     }
 }

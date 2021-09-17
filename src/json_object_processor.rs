@@ -34,14 +34,11 @@ impl JsonObjectProcessor {
     }
 
     fn multi_metric_strategy(&self, config: &ConfigFile) -> Option<Vec<PromMetric>> {
-        let gauge_field = config.gauge_field.to_string();
+        let gauge_field_name = config.gauge_field.to_string();
         let mut labels = vec!();
         labels.append(&mut self.extract_labels(config, &self.child_object));
-        let gauge_field = self.child_object.iter().find(|(name, _value)| name.to_string().eq(&gauge_field))?;
-        let prom_value = utils::json_value_to_i64(gauge_field.1)?;
+        let gauge_field = self.child_object.iter().find(|(name, _value)| name.to_string().eq(&gauge_field_name))?;
         let metric_name = format!("{}_{}", self.root_key_name, gauge_field.0.to_case(Case::Snake));
-        let gauge_field_values = config.gauge_field_values.as_ref()?;
-
         let mut metrics = vec!();
         let metric_labels = if labels.len() > 0 && self.global_labels.is_some() {
             let mut l = self.global_labels.clone().unwrap();
@@ -50,10 +47,32 @@ impl JsonObjectProcessor {
         } else {
             self.global_labels.clone()
         };
+        if let Some(gauge_field_values) = &config.gauge_field_values {
+            return Some(gauge_field_values.iter()
+                .map(|field_value| {
+                    let labels = match metric_labels.clone() {
+                        Some(mut labels) => {
+                            labels.append(&mut vec![PromLabel::new(gauge_field_name.to_string(), field_value.to_string())]);
+                            Some(labels)
+                        }
+                        None => None
+                    };
 
-        for _gauge_field_value in gauge_field_values {
-            metrics.push(PromMetric::new(metric_name.clone(), Some(prom_value), metric_labels.clone()));
+                    let converted_value= utils::json_value_to_str(gauge_field.1).unwrap();
+                    if converted_value.to_lowercase() == field_value.to_lowercase() {
+                        PromMetric::new(metric_name.to_string(), Some(1), labels)
+                    }
+                    else {
+                        PromMetric::new(metric_name.to_string(), Some(0), labels)
+                    }
+                })
+                .collect::<Vec<_>>())
         }
+        else {
+            let prom_value = utils::json_value_to_i64(gauge_field.1)?;
+            metrics.push(PromMetric::new(metric_name, Some(prom_value), metric_labels));
+        }
+
         Some(metrics)
     }
 
