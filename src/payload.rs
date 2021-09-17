@@ -326,7 +326,6 @@ global_labels:
     }
 
     #[test]
-    #[ignore]
     fn convert_json_ensure_one_metric_per_gauge_value() {
         let json_str = json_with_several_components();
         let payload = Payload::new(json_str, Some(".components".into()), config_with_gauge_mapping());

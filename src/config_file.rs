@@ -10,7 +10,8 @@ pub struct GlobalLabel {
 #[derive(Deserialize)]
 pub struct ConfigFile {
     pub gauge_field: String,
-    pub global_labels: Option<Vec<GlobalLabel>>
+    pub global_labels: Option<Vec<GlobalLabel>>,
+    pub gauge_field_values: Option<Vec<String>>
 }
 
 #[derive(Debug)]
