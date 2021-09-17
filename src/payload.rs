@@ -189,10 +189,6 @@ global_labels:
         payload.json_to_metrics().unwrap()
     }
 
-    /*
-    TODO
-    - Test what happens when no `json_entry_point` gets supplied
-    */
     #[test]
     fn convert_json_object_no_entry_point() {
         let json_str = json_with_numeric_values();

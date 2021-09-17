@@ -48,8 +48,6 @@ impl Jq {
         match utils::json_value_to_str(&json_value) {
             Some(val) => Ok(val),
             None => {
-                println!("json_payload: {}", json_payload);
-                println!("jq_query: {}", jq_query);
                 let err_msg = format!("Expected scalar value. Found {}", json_value.to_string()).to_string();
                 let err = ValueError { message: err_msg };
                 Err(JqError::NonScalarValueError(err))
