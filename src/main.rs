@@ -12,6 +12,7 @@ mod prom_label;
 mod jq;
 mod utils;
 mod selector_error;
+mod payload_error;
 
 #[derive(Clap)]
 #[clap(version = "1.0", author = "Epsagon")]

@@ -7,25 +7,7 @@ use crate::prom_label::PromLabel;
 use crate::prom_metric::PromMetric;
 use crate::utils;
 use crate::selector_error::SelectorError;
-
-
-#[derive(Debug)]
-pub enum PayloadError {
-    JsonError(serde_json::Error),
-    SelectorError(SelectorError)
-}
-
-impl From<serde_json::Error> for PayloadError {
-    fn from(err: serde_json::Error) -> Self {
-        PayloadError::JsonError(err)
-    }
-}
-
-impl From<SelectorError> for PayloadError {
-    fn from(err: SelectorError) -> Self {
-        PayloadError::SelectorError(err)
-    }
-}
+use crate::payload_error::PayloadError;
 
 pub struct Payload {
     full_json_document: String,
