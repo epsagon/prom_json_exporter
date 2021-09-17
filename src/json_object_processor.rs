@@ -1,7 +1,7 @@
 use convert_case::{Case, Casing};
 use serde_json::{Map, Value};
 
-use crate::{config_file::ConfigFile, prom_label::PromLabel, prom_metric::PromMetric, utils};
+use crate::{config_file::{self, ConfigFile}, prom_label::PromLabel, prom_metric::PromMetric, utils};
 
 pub struct JsonObjectProcessor {
     root_key_name: String,
@@ -22,14 +22,25 @@ impl JsonObjectProcessor {
         )
     }
 
-    pub fn visit(&self, config: &ConfigFile) -> Option<PromMetric> {
+    pub fn visit(&self, config: &ConfigFile) -> Option<Vec<PromMetric>> {
+        if let Some(metric) = self.single_metric_strategy(config) {
+            Some(vec!(metric))
+        } else {
+            None
+        }
+    }
+
+    fn multi_metric_strategy(&self, config: &ConfigFile) -> Option<PromMetric> {
+        None
+    }
+
+    fn single_metric_strategy(&self, config: &ConfigFile) -> Option<PromMetric> {
         let gauge_field = config.gauge_field.to_string();
         let mut labels = vec!();
         labels.append(&mut self.extract_labels(config, &self.child_object));
         let gauge_field = self.child_object.iter().find(|(name, _value)| name.to_string().eq(&gauge_field))?;
         let prom_value = utils::json_value_to_i64(gauge_field.1)?;
         let metric_name = format!("{}_{}", self.root_key_name, gauge_field.0.to_case(Case::Snake));
-
         let metric_labels = if labels.len() > 0 && self.global_labels.is_some() {
             let mut l = self.global_labels.clone().unwrap();
             l.append(&mut labels);
@@ -37,7 +48,6 @@ impl JsonObjectProcessor {
         } else {
             self.global_labels.clone()
         };
-
         Some(PromMetric::new(metric_name, Some(prom_value), metric_labels))
     }
 

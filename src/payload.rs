@@ -60,8 +60,8 @@ impl Payload {
         for root_key in json_object {
             if root_key.1.is_object() {
                 let processor = JsonObjectProcessor::new(root_key.0, root_key.1, global_labels.clone()).unwrap();
-                if let Some(m) = processor.visit(&self.config) {
-                    metrics.push(m);
+                if let Some(mut m) = processor.visit(&self.config) {
+                    metrics.append(&mut m);
                 }
             }
             else if root_key.1.is_number() {
