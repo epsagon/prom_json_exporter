@@ -2,25 +2,12 @@ use serde_json::Value;
 use convert_case::{Case, Casing};
 use std::collections::HashMap;
 use crate::config_file::ConfigFile;
-use crate::jq::{Jq, JqError};
+use crate::jq::Jq;
 use crate::prom_label::PromLabel;
 use crate::prom_metric::PromMetric;
 use crate::utils;
+use crate::selector_error::SelectorError;
 
-#[derive(Debug)]
-pub struct SelectorError{
-    pub message: String,
-    cause: Option<JqError>
-}
-
-impl SelectorError {
-    pub fn new(message: &str, cause: Option<JqError>) -> Self {
-        Self {
-            message: message.to_string(),
-            cause: cause
-        }
-    }
-}
 
 #[derive(Debug)]
 pub enum PayloadError {
@@ -37,26 +24,6 @@ impl From<serde_json::Error> for PayloadError {
 impl From<SelectorError> for PayloadError {
     fn from(err: SelectorError) -> Self {
         PayloadError::SelectorError(err)
-    }
-}
-
-impl std::error::Error for SelectorError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        None
-    }
-
-    fn description(&self) -> &str {
-        &self.message
-    }
-
-    fn cause(&self) -> Option<&dyn std::error::Error> {
-        self.source()
-    }
-}
-
-impl std::fmt::Display for SelectorError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.message)
     }
 }
 
@@ -172,6 +139,8 @@ impl Payload {
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error;
+
     use crate::{config_file::{self, ConfigFile}, payload::Payload, prom_metric::PromMetric};
 
     use super::PayloadError;
@@ -269,7 +238,7 @@ global_labels:
         let payload = Payload::new(json_str, None, config_with_non_existing_global_labels());
         match payload.json_to_metrics().unwrap_err() {
             PayloadError::SelectorError(err) => {
-                assert!(err.cause.is_some());
+                assert!(err.source().is_some());
             },
             _ => {
                 assert!(false);
