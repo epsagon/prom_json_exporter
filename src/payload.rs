@@ -1,262 +1,368 @@
-use serde_json::Map;
-use serde_json::{Value, Result};
+use serde_json::Value;
 use convert_case::{Case, Casing};
 use std::collections::HashMap;
+use crate::config_file::ConfigFile;
+use crate::jq::Jq;
+use crate::json_object_processor::JsonObjectProcessor;
+use crate::prom_label::PromLabel;
+use crate::prom_metric::PromMetric;
+use crate::utils;
+use crate::selector_error::SelectorError;
+use crate::payload_error::PayloadError;
 
-#[derive(Debug)]
-pub struct PromLabel {
-    pub name: String,
-    pub value: String
+pub struct Payload {
+    full_json_document: String,
+    payload_document: String,
+    config: ConfigFile,
+    jq: Jq
 }
 
-impl PromLabel {
-    pub fn new (name: String, value: String) -> Self {
+impl Payload {
+    pub fn new(json: String, json_entry_point: Option<String>, config: ConfigFile) -> Self {
+        let jq = Jq::new().unwrap();
+        let default_query = ".".to_string(); // `.` is the jq filter that returns the entire document
+        let payload_document = jq.resolve_raw(&json, &json_entry_point.unwrap_or(default_query)).unwrap(); //TODO: "HANDLE THIS ERROR ACCORDINGLY"
+
         Self {
-            name: name,
-            value: value
+            jq: jq,
+            full_json_document: json,
+            config: config,
+            payload_document: payload_document
         }
     }
-}
 
-#[derive(Debug)]
-pub struct PromMetric {
-    pub name: String,
-    pub value: Option<String>,
-    pub labels: Option<Vec<PromLabel>>
-}
-
-impl PromMetric {
-    pub fn new(name: String, value: Option<String>, labels: Option<Vec<PromLabel>>) -> Self {
-        Self {
-            name: name,
-            value: value,
-            labels: labels
-        }
-    }
-}
-
-impl ToString for PromMetric {
-    fn to_string(&self) -> std::string::String {
-        if let Some(value) = &self.value {
-            format!("{} {}", self.name, value)
-        }
-        else {
-            let labels = self.labels
-                .as_ref()
-                .unwrap()
-                .iter()
-                .map(|label| format!("{}={}", label.name, label.value))
-                .collect::<Vec<_>>()
-                .join(",");
-
-            format!("{}{{{}}}", self.name, labels)
-        }
-    }
-}
-
-fn to_labels(child_object: &Map<String, Value>) -> Vec<PromLabel> {
-    let mut labels = vec!();
-
-    for (child_key, child_value) in child_object {
-        let snake_case_name = child_key.to_case(Case::Snake);
-        labels.push(PromLabel::new(snake_case_name, child_value.to_string()));
-    }
-
-    labels
-}
-
-fn convert_json_array(value: Value, snake_case_name: String) -> Vec<PromMetric> {
-    let child_list = value.as_array().unwrap();
-    let mut metrics = vec!();
-
-    for label in child_list {
+    fn fetch_global_metric_labels(&self) -> Result<Vec<PromLabel>, SelectorError> {
         let mut labels = vec!();
-        for (child_key, child_value) in label.as_object().unwrap() {
-            labels.push(PromLabel::new(child_key.to_string(), child_value.to_string()));
-        }
-        metrics.push(PromMetric::new(snake_case_name.to_string(), None, Some(labels)));
-    }
-    metrics
-}
+        for global_label in self.config.global_labels.as_ref().unwrap() {
+            let raw_value = self.jq.resolve_json_scalar_value(
+                &self.full_json_document,
+                &global_label.selector
+            );
 
-pub fn json_to_metrics(json: String) -> Result<Vec<PromMetric>> {
-    let json_object: HashMap<String, Value> = serde_json::from_str(&json)?;
-
-    let mut metrics = vec![];
-
-    for (parent_key, value) in json_object {
-        let snake_case_name = parent_key.to_case(Case::Snake);
-
-        if value.is_object() {
-            let child_object = value.as_object().unwrap();
-            metrics.push(PromMetric::new(snake_case_name.to_string(), None, Some(to_labels(&child_object))));
+            match raw_value {
+                Ok(val) => labels.push(PromLabel::new(global_label.name.to_string(), val.trim().to_string())),
+                Err(err) => return Err(SelectorError::new("Failed to fetch global metric", Some(err)))
+            }
         }
-        else if value.is_array() {
-            let mut new_metrics = convert_json_array(value, snake_case_name);
-            metrics.append(&mut new_metrics);
-        }
-        else {
-            metrics.push(PromMetric::new(snake_case_name, Some(value.to_string()), None));
-        }
+        Ok(labels)
     }
 
-    Ok(metrics)
+    pub fn json_to_metrics(&self) -> Result<Vec<PromMetric>, PayloadError> {
+        let json_object: HashMap<String, Value> = serde_json::from_str(&self.payload_document)?;
+        let mut metrics = vec![];
+
+        let global_labels = if self.config.global_labels.is_some() {
+            Some(self.fetch_global_metric_labels()?)
+        } else {
+            None
+        };
+
+        for root_key in json_object {
+            if root_key.1.is_object() {
+                let processor = JsonObjectProcessor::new(root_key.0, root_key.1, global_labels.clone()).unwrap();
+                if let Some(mut m) = processor.visit(&self.config) {
+                    metrics.append(&mut m);
+                }
+            }
+            else if root_key.1.is_number() {
+                if let Some(m) = self.visit_number(root_key, &global_labels) {
+                    metrics.push(m);
+                }
+            }
+        }
+
+        Ok(metrics)
+    }
+
+    fn visit_number(&self, json_value: (String, Value), global_labels: &Option<Vec<PromLabel>>) -> Option<PromMetric> {
+        let metric_name = json_value.0.to_case(Case::Snake);
+        if let Some(num) = utils::json_number_to_i64(&json_value.1) {
+            Some(PromMetric::new(metric_name, Some(num), global_labels.clone()))
+        } else {
+            None
+        }
+    }
 }
+
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error;
 
-    use crate::payload::json_to_metrics;
+    use crate::{config_file::{self, ConfigFile}, payload::Payload, prom_metric::PromMetric};
 
-    fn nested_json() -> String {
-        r#"{"status":"success","code":0,"data":{"UserCount":140,"UserCountActive":23}}"#.to_string()
-    }
+    use super::PayloadError;
 
-    fn simple_json() -> String {
+    fn full_json_file() -> String {
         r#"{
-        "server_up": "up",
-        "backends": 23
-      }"#.to_string()
-    }
-
-    fn simple_json_with_camel_case() -> String {
-        r#"{
-        "serverUp": "up",
-        "backends": 23
-      }"#.to_string()
-    }
-
-    fn json_with_list() -> String {
-        r#"{
-            "counter": 1234,
-            "values": [
-                {
-                    "id": "id-A",
-                    "count": 1,
-                    "some_boolean": true,
-                    "state": "ACTIVE"
-                },
-                {
-                    "id": "id-B",
-                    "count": 2,
-                    "some_boolean": true,
-                    "state": "INACTIVE"
-                },
-                {
-                    "id": "id-C",
-                    "count": 3,
-                    "some_boolean": false,
-                    "state": "ACTIVE"
+            "environment": "production",
+            "id": "xyz",
+            "last_refresh_epoch": 1631046901,
+            "components": {
+                "network": {
+                    "status": "OK",
+                    "status_upstream": "active",
+                    "has_ip_addresses": true,
+                    "use_ip_v6": false,
+                    "upstream_endpoints": 54
                 }
-            ],
-            "location": "mars"
+            }
         }"#.to_string()
     }
 
+    fn json_with_several_components() -> String {
+        r#"{
+            "environment": "production",
+            "id": "xyz",
+            "last_refresh_epoch": 1631046901,
+            "components": {
+                "network": {
+                    "status": "OK",
+                    "status_upstream": "active",
+                    "has_ip_addresses": true,
+                    "use_ip_v6": false,
+                    "upstream_endpoints": 54
+                },
+                "router": {
+                    "status": "Warning",
+                    "num_active_uplinks": 1,
+                    "num_uplinks": 2
+                }
+            }
+        }"#.to_string()
+    }
 
-    #[test]
-    fn simple_json_converts_numeric() {
-        let backend_metric = json_to_metrics(simple_json()).unwrap().into_iter()
-                                .find(|x| x.name == "backends")
-                                .unwrap();
+    fn json_with_numeric_values() -> String {
+        r#"{
+            "environment": "production",
+            "id": "xyz",
+            "last_refresh_epoch": 1631046901,
+            "api_http_requests_total": 456,
+            "http_requests": 2,
+            "components": {
+                "http_server": {
+                    "up": true
+                }
+            }
+        }"#.to_string()
+    }
 
-        assert_eq!(backend_metric.name, "backends");
-        assert_eq!(backend_metric.value, Some("23".to_string()));
+    fn config_without_gauge_mapping() -> ConfigFile {
+        let yaml_str = r#"
+gauge_field: status
+global_labels:
+    - name: environment
+      selector: .environment
+    - name: id
+      selector: .id
+"#;
+        config_file::ConfigFile::from_str(yaml_str).unwrap()
+    }
+
+    fn config_with_non_existing_global_labels() -> ConfigFile {
+        let yaml_str = r#"
+gauge_field: status
+global_labels:
+    - name: Does not exist
+      selector: .does_not_exist
+    - name: id
+      selector: .id
+"#;
+        config_file::ConfigFile::from_str(yaml_str).unwrap()
+    }
+
+    fn config_with_gauge_mapping() -> ConfigFile {
+        let yaml_str = r#"
+gauge_field: status
+gauge_field_values:
+  - warning
+  - ok
+global_labels:
+    - name: environment
+      selector: .environment
+    - name: id
+      selector: .id
+"#;
+        config_file::ConfigFile::from_str(yaml_str).unwrap()
+    }
+
+    fn create_metrics() -> Vec<PromMetric> {
+        let json_str = full_json_file();
+        let payload = Payload::new(json_str, Some(".components".into()), config_without_gauge_mapping());
+        payload.json_to_metrics().unwrap()
     }
 
     #[test]
-    fn simple_json_converts_string() {
-        let uptime_metric = json_to_metrics(simple_json()).unwrap().into_iter()
-                                .find(|x| x.name == "server_up")
-                                .unwrap();
+    fn convert_json_object_no_entry_point() {
+        let json_str = json_with_numeric_values();
+        let payload = Payload::new(json_str, None, config_without_gauge_mapping());
+        let mut payload_names= payload.json_to_metrics()
+                                        .unwrap()
+                                        .iter()
+                                        .map(|metric| metric.name.to_string())
+                                        .collect::<Vec<_>>();
 
-        assert_eq!(uptime_metric.name, "server_up");
-        assert_eq!(uptime_metric.value, Some("\"up\"".to_string()));
+        payload_names.sort_by(|a, b| a.cmp(&b));
+
+        assert_eq!(payload_names, vec![
+            "api_http_requests_total",
+            "http_requests",
+            "last_refresh_epoch"
+        ]);
     }
 
     #[test]
-    fn simple_json_converts_camel_case_to_snake_case() {
-        let uptime_metric = json_to_metrics(simple_json_with_camel_case()).unwrap().into_iter()
-            .find(|x| x.name == "server_up")
-            .unwrap();
-
-        assert_eq!(uptime_metric.name, "server_up");
-        assert_eq!(uptime_metric.value, Some("\"up\"".to_string()));
+    fn convert_json_object_invalid_global_label_selector() {
+        //We want to test what happens when we try to fetch global labels from the json
+        //that do not exist
+        let json_str = json_with_numeric_values();
+        let payload = Payload::new(json_str, None, config_with_non_existing_global_labels());
+        match payload.json_to_metrics().unwrap_err() {
+            PayloadError::SelectorError(err) => {
+                assert!(err.source().is_some());
+            },
+            _ => {
+                assert!(false);
+            }
+        }
     }
 
     #[test]
-    fn complex_json_converts_status() {
-        let uptime_metric = json_to_metrics(nested_json()).unwrap().into_iter()
-                                .find(|x| x.name == "status")
-                                .unwrap();
+    fn convert_json_object_no_entry_point_does_not_convert_child_object() {
+        let json_str = json_with_numeric_values();
+        let payload = Payload::new(json_str, None, config_without_gauge_mapping());
+        let metrics = payload.json_to_metrics().unwrap();
+        let component_metric = metrics.iter().find(|m| m.name == "components");
 
-        assert_eq!(uptime_metric.name, "status");
-        assert_eq!(uptime_metric.value, Some("\"success\"".to_string()));
+        assert!(component_metric.is_none());
     }
 
     #[test]
-    fn complex_json_converts_code() {
-        let uptime_metric = json_to_metrics(nested_json()).unwrap().into_iter()
-                                .find(|x| x.name == "code")
-                                .unwrap();
-
-        assert_eq!(uptime_metric.name, "code");
-        assert_eq!(uptime_metric.value, Some("0".to_string()));
+    fn convert_json_object_with_correct_status_field_config() {
+        let metrics = create_metrics();
+        assert_eq!(metrics[0].name, "network_status");
+        assert_eq!(metrics[0].value, Some(1));
     }
 
     #[test]
-    fn complex_json_convert_data_user_count_label() {
-        let metrics = json_to_metrics(nested_json()).unwrap();
-        let data_metric = metrics.into_iter()
-                                .find(|x| x.name == "data")
-                                .unwrap();
+    fn convert_full_json_file_extract_global_labels() {
+        let metrics = create_metrics();
+        assert_eq!(metrics[0].name, "network_status");
+        assert_eq!(metrics[0].value, Some(1));
 
-        assert_eq!(data_metric.name, "data");
-        assert_eq!(data_metric.value, None);
+        let labels = metrics[0].labels.as_ref().unwrap();
 
-        let user_count_label = data_metric.labels
-                                            .unwrap()
-                                            .into_iter()
-                                            .find(|x| x.name == "user_count")
-                                            .unwrap();
+        let l1 = labels.into_iter().find(|l| l.name == "environment").unwrap();
+        assert_eq!(l1.value, "production");
 
-        assert_eq!(user_count_label.name, "user_count");
-        assert_eq!(user_count_label.value, "140".to_string());
+        let l2 = labels.into_iter().find(|l| l.name == "id").unwrap();
+        assert_eq!(l2.value, "xyz");
     }
 
     #[test]
-    fn complex_json_convert_user_count_active_label() {
-        let metrics = json_to_metrics(nested_json()).unwrap();
-        let data_metric = metrics.into_iter()
-                                    .find(|x| x.name == "data")
-                                    .unwrap();
+    fn convert_full_json_file_extract_additional_attribute_names() {
+        let metrics = create_metrics();
+        let mut label_names = metrics[0].labels
+                .as_ref()
+                .unwrap()
+                .iter()
+                .map(|label| label.name.to_string())
+                .collect::<Vec<String>>();
 
-        let user_count_active_label = data_metric.labels
-        .unwrap()
-        .into_iter()
-        .find(|x| x.name == "user_count_active")
-        .unwrap();
+        label_names.sort_by(|a, b| a.cmp(b));
 
-        assert_eq!(user_count_active_label.name, "user_count_active");
-        assert_eq!(user_count_active_label.value, "23".to_string());
+        assert_eq!(label_names, vec![
+            "environment",
+            "has_ip_addresses",
+            "id",
+            "status_upstream",
+            "upstream_endpoints",
+            "use_ip_v6"
+        ]);
     }
 
     #[test]
-    fn complex_json_convert_list_to_labels_has_three_metrics() {
-        let metrics = json_to_metrics(json_with_list()).unwrap();
-        let values_metrics = metrics.into_iter()
-                                    .filter(|x| x.name == "values");
-        assert_eq!(values_metrics.count(), 3);
-    }
+    fn convert_full_json_file_extract_additional_attribute_values() {
+        let metrics = create_metrics();
+        let mut labels = metrics[0].labels
+                .as_ref()
+                .unwrap()
+                .iter()
+                .collect::<Vec<_>>();
 
-    #[test]
-    fn complex_json_convert_list_to_labels_has_correct_number_of_labels() {
-        let metrics = json_to_metrics(json_with_list()).unwrap();
-        let values_metrics = metrics.into_iter()
-                                    .filter(|x| x.name == "values")
+        labels.sort_by(|a, b| a.name.cmp(&b.name));
+
+        let values = labels.iter()
+                                    .map(|label| label.value.to_string())
                                     .collect::<Vec<_>>();
+        assert_eq!(values, vec![
+            "production",
+            "true",
+            "xyz",
+            "active",
+            "54",
+            "false"
+        ]);
+    }
 
-        let values_metric = &values_metrics[0];
-        assert_eq!(values_metric.labels.as_ref().unwrap().len(), 4);
+    #[test]
+    fn convert_full_json_with_root_entry_point_only_converts_numeric() {
+        let json_str = full_json_file();
+        let payload = Payload::new(json_str, Some(".".into()), config_without_gauge_mapping());
+        let metrics = payload.json_to_metrics().unwrap();
+        assert_eq!(metrics[0].name, "last_refresh_epoch");
+        assert_eq!(metrics[0].value, Some(1631046901));
+    }
+
+    #[test]
+    fn convert_full_json_with_root_entry_point_has_global_attributes() {
+        let json_str = full_json_file();
+        let payload = Payload::new(json_str, Some(".".into()), config_without_gauge_mapping());
+        let metrics = payload.json_to_metrics().unwrap();
+        let labels = metrics[0].labels.as_ref().unwrap();
+
+        assert_eq!(labels[0].name, "environment");
+        assert_eq!(labels[1].name, "id");
+    }
+
+    #[test]
+    fn convert_json_ensure_one_metric_per_gauge_value() {
+        let json_str = json_with_several_components();
+        let payload = Payload::new(json_str, Some(".components".into()), config_with_gauge_mapping());
+        let metrics = payload.json_to_metrics().unwrap();
+        assert_eq!(metrics.len(), 4);
+    }
+
+    #[test]
+    fn convert_json_ensure_metric_per_gauge_value_has_correct_label() {
+        let json_str = json_with_several_components();
+        let payload = Payload::new(json_str, Some(".components".into()), config_with_gauge_mapping());
+        let metrics = payload.json_to_metrics().unwrap();
+
+        let first = metrics[0].labels.as_ref().unwrap();
+        let second = metrics[1].labels.as_ref().unwrap();
+
+        let first_status = first.iter().find(|label| label.name == "status");
+        assert_eq!(first_status.unwrap().value, "warning");
+        let second_status = second.iter().find(|label| label.name == "status");
+        assert_eq!(second_status.unwrap().value, "ok");
+    }
+
+    #[test]
+    fn convert_json_ensure_metric_per_gauge_value_has_correct_flag() {
+        let json_str = json_with_several_components();
+        let payload = Payload::new(json_str, Some(".components".into()), config_with_gauge_mapping());
+        let metrics = payload.json_to_metrics().unwrap();
+
+        assert_eq!(metrics.len(), 4);
+
+        let router_metrics = metrics.iter().filter(|m| m.name == "router_status").collect::<Vec<_>>();
+        assert_eq!(router_metrics.len(), 2);
+
+        let has_one_flag = router_metrics.iter().any(|m| m.value == Some(1));
+        let has_zero_flag = router_metrics.iter().any(|m| m.value == Some(0));
+
+        assert!(has_one_flag);
+        assert!(has_zero_flag);
     }
 }
