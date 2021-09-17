@@ -38,7 +38,6 @@ impl JsonObjectProcessor {
         let mut labels = vec!();
         labels.append(&mut self.extract_labels(config, &self.child_object));
         let gauge_field = self.child_object.iter().find(|(name, _value)| name.to_string().eq(&gauge_field_name))?;
-        let metric_name = format!("{}_{}", self.root_key_name, gauge_field.0.to_case(Case::Snake));
         let mut metrics = vec!();
         let metric_labels = if labels.len() > 0 && self.global_labels.is_some() {
             let mut l = self.global_labels.clone().unwrap();
@@ -48,29 +47,15 @@ impl JsonObjectProcessor {
             self.global_labels.clone()
         };
         if let Some(gauge_field_values) = &config.gauge_field_values {
-            return Some(gauge_field_values.iter()
-                .map(|field_value| {
-                    let labels = match metric_labels.clone() {
-                        Some(mut labels) => {
-                            labels.append(&mut vec![PromLabel::new(gauge_field_name.to_string(), field_value.to_string())]);
-                            Some(labels)
-                        }
-                        None => None
-                    };
-
-                    let converted_value= utils::json_value_to_str(gauge_field.1).unwrap();
-                    if converted_value.to_lowercase() == field_value.to_lowercase() {
-                        PromMetric::new(metric_name.to_string(), Some(1), labels)
-                    }
-                    else {
-                        PromMetric::new(metric_name.to_string(), Some(0), labels)
-                    }
-                })
-                .collect::<Vec<_>>())
+            return self.gauge_field_values_to_metrics(
+                            gauge_field_name,
+                            gauge_field,
+                            metric_labels,
+                            gauge_field_values)
         }
         else {
             let prom_value = utils::json_value_to_i64(gauge_field.1)?;
-            metrics.push(PromMetric::new(metric_name, Some(prom_value), metric_labels));
+            metrics.push(PromMetric::new(self.metric_name(gauge_field), Some(prom_value), metric_labels));
         }
 
         Some(metrics)
@@ -82,7 +67,6 @@ impl JsonObjectProcessor {
         labels.append(&mut self.extract_labels(config, &self.child_object));
         let gauge_field = self.child_object.iter().find(|(name, _value)| name.to_string().eq(&gauge_field))?;
         let prom_value = utils::json_value_to_i64(gauge_field.1)?;
-        let metric_name = format!("{}_{}", self.root_key_name, gauge_field.0.to_case(Case::Snake));
         let metric_labels = if labels.len() > 0 && self.global_labels.is_some() {
             let mut l = self.global_labels.clone().unwrap();
             l.append(&mut labels);
@@ -90,7 +74,7 @@ impl JsonObjectProcessor {
         } else {
             self.global_labels.clone()
         };
-        Some(PromMetric::new(metric_name, Some(prom_value), metric_labels))
+        Some(PromMetric::new(self.metric_name(gauge_field), Some(prom_value), metric_labels))
     }
 
     fn extract_labels(&self, config: &ConfigFile, child_object: &serde_json::Map<String, Value>) -> Vec<PromLabel> {
@@ -107,4 +91,36 @@ impl JsonObjectProcessor {
 
         labels
     }
+
+    fn metric_name(&self, gauge_field: (&String, &Value)) -> String {
+        format!("{}_{}", self.root_key_name, gauge_field.0.to_case(Case::Snake))
+    }
+
+    fn gauge_field_values_to_metrics(&self,
+                gauge_field_name: String,
+                gauge_field: (&String, &Value),
+                metric_labels: Option<Vec<PromLabel>>,
+                gauge_field_values: &Vec<String>) -> Option<Vec<PromMetric>> {
+
+        Some(gauge_field_values.iter()
+            .map(|field_value| {
+                let labels = match metric_labels.clone() {
+                    Some(mut labels) => {
+                        labels.append(&mut vec![PromLabel::new(gauge_field_name.to_string(), field_value.to_string())]);
+                        Some(labels)
+                    }
+                    None => None
+                };
+
+                let converted_value= utils::json_value_to_str(gauge_field.1).unwrap();
+                if converted_value.to_lowercase() == field_value.to_lowercase() {
+                    PromMetric::new(self.metric_name(gauge_field).to_string(), Some(1), labels)
+                }
+                else {
+                    PromMetric::new(self.metric_name(gauge_field).to_string(), Some(0), labels)
+                }
+            })
+            .collect::<Vec<_>>())
+    }
 }
+
