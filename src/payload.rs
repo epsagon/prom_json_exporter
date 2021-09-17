@@ -110,6 +110,28 @@ mod tests {
         }"#.to_string()
     }
 
+    fn json_with_several_components() -> String {
+        r#"{
+            "environment": "production",
+            "id": "xyz",
+            "last_refresh_epoch": 1631046901,
+            "components": {
+                "network": {
+                    "status": "OK",
+                    "status_upstream": "active",
+                    "has_ip_addresses": true,
+                    "use_ip_v6": false,
+                    "upstream_endpoints": 54
+                },
+                "router": {
+                    "status": "Warning",
+                    "num_active_uplinks": 1,
+                    "num_uplinks": 2
+                }
+            }
+        }"#.to_string()
+    }
+
     fn json_with_numeric_values() -> String {
         r#"{
             "environment": "production",
@@ -125,7 +147,7 @@ mod tests {
         }"#.to_string()
     }
 
-    fn config() -> ConfigFile {
+    fn config_without_gauge_mapping() -> ConfigFile {
         let yaml_str = r#"
 gauge_field: status
 global_labels:
@@ -149,16 +171,31 @@ global_labels:
         config_file::ConfigFile::from_str(yaml_str).unwrap()
     }
 
+    fn config_with_gauge_mapping() -> ConfigFile {
+        let yaml_str = r#"
+gauge_field: status
+gauge_field_values:
+  - warning
+  - ok
+global_labels:
+    - name: environment
+      selector: .environment
+    - name: id
+      selector: .id
+"#;
+        config_file::ConfigFile::from_str(yaml_str).unwrap()
+    }
+
     fn create_metrics() -> Vec<PromMetric> {
         let json_str = full_json_file();
-        let payload = Payload::new(json_str, Some(".components".into()), config());
+        let payload = Payload::new(json_str, Some(".components".into()), config_without_gauge_mapping());
         payload.json_to_metrics().unwrap()
     }
 
     #[test]
     fn convert_json_object_no_entry_point() {
         let json_str = json_with_numeric_values();
-        let payload = Payload::new(json_str, None, config());
+        let payload = Payload::new(json_str, None, config_without_gauge_mapping());
         let mut payload_names= payload.json_to_metrics()
                                         .unwrap()
                                         .iter()
@@ -193,7 +230,7 @@ global_labels:
     #[test]
     fn convert_json_object_no_entry_point_does_not_convert_child_object() {
         let json_str = json_with_numeric_values();
-        let payload = Payload::new(json_str, None, config());
+        let payload = Payload::new(json_str, None, config_without_gauge_mapping());
         let metrics = payload.json_to_metrics().unwrap();
         let component_metric = metrics.iter().find(|m| m.name == "components");
 
@@ -271,7 +308,7 @@ global_labels:
     #[test]
     fn convert_full_json_with_root_entry_point_only_converts_numeric() {
         let json_str = full_json_file();
-        let payload = Payload::new(json_str, Some(".".into()), config());
+        let payload = Payload::new(json_str, Some(".".into()), config_without_gauge_mapping());
         let metrics = payload.json_to_metrics().unwrap();
         assert_eq!(metrics[0].name, "last_refresh_epoch");
         assert_eq!(metrics[0].value, Some(1631046901));
@@ -280,11 +317,20 @@ global_labels:
     #[test]
     fn convert_full_json_with_root_entry_point_has_global_attributes() {
         let json_str = full_json_file();
-        let payload = Payload::new(json_str, Some(".".into()), config());
+        let payload = Payload::new(json_str, Some(".".into()), config_without_gauge_mapping());
         let metrics = payload.json_to_metrics().unwrap();
         let labels = metrics[0].labels.as_ref().unwrap();
 
         assert_eq!(labels[0].name, "environment");
         assert_eq!(labels[1].name, "id");
+    }
+
+    #[test]
+    #[ignore]
+    fn convert_json_ensure_one_metric_per_gauge_value() {
+        let json_str = json_with_several_components();
+        let payload = Payload::new(json_str, Some(".components".into()), config_with_gauge_mapping());
+        let metrics = payload.json_to_metrics().unwrap();
+        assert_eq!(metrics.len(), 2);
     }
 }
