@@ -53,7 +53,7 @@ impl CustomIncludeProcessor {
             if let Some(gauge) = json_object.get(gauge_field) {
                 if let Some(config_gauge_field_values) = &self.config.gauge_field_values {
                     let serde_value = self.get_custom_label_json_object(&include.label_selector)?;
-                    if let Some(custom_label_json_object) = serde_value.as_object() {//TODO: Handle conversion error {
+                    if let Some(custom_label_json_object) = serde_value.as_object() {
 
                         let mut gauge_metrics = config_gauge_field_values
                                 .iter()
