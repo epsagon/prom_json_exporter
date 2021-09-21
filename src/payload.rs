@@ -224,6 +224,8 @@ global_labels:
       selector: .id
 includes:
     - name: router_backend_status
+      label_name: backend
+      label_selector: .router.backend
       selector:
         - ".router.backend.back1"
         - ".router.backend.back2"
@@ -437,5 +439,23 @@ includes:
         });
 
         assert!(has_custom_label);
+    }
+
+    #[test]
+    #[ignore]
+    fn convert_json_ensure_custom_includes_has_include_label() {
+        let json_str = json_with_several_components();
+        let payload = Payload::new(json_str, Some(".components".into()),config_with_custom_includes());
+        let metrics = payload.json_to_metrics().unwrap();
+        let custom_includes = metrics.iter().filter(|metric| metric.name == "router_backend_status")
+                                .collect::<Vec<_>>();
+        let has_include_label = custom_includes.iter().all(|m|{
+            m.labels.as_ref().unwrap()
+            .iter()
+            .any(|l| l.name == "backend" && l.value.starts_with("back"))
+        });
+
+        assert!(has_include_label);
+
     }
 }

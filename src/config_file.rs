@@ -10,7 +10,9 @@ pub struct GlobalLabel {
 #[derive(Deserialize, Clone, Debug)]
 pub struct Include {
     pub name: String,
-    pub selector: Vec<String>
+    pub selector: Vec<String>,
+    pub label_name: String,
+    pub label_selector: String
 }
 
 #[derive(Deserialize, Clone, Debug)]
