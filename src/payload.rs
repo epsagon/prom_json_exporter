@@ -99,10 +99,9 @@ impl Payload {
 #[cfg(test)]
 mod tests {
     use std::error::Error;
-
-    use crate::{config_file::{self, ConfigFile}, payload::Payload, prom_metric::PromMetric};
-
+    use crate::{config_file::{self, ConfigFile}, custom_include::CustomIncludeError, payload::Payload, prom_metric::PromMetric};
     use super::PayloadError;
+    use assert_matches::assert_matches;
 
     fn full_json_file() -> String {
         r#"{
@@ -226,6 +225,28 @@ includes:
     - name: router_backend_status
       label_name: backend
       label_selector: .router.backend
+      selector:
+        - ".router.backend.back1"
+        - ".router.backend.back2"
+"#;
+        config_file::ConfigFile::from_str(yaml_str).unwrap()
+    }
+
+    fn config_with_custom_includes_and_invalid_label_selector() -> ConfigFile {
+        let yaml_str = r#"
+gauge_field: status
+gauge_field_values:
+  - warning
+  - ok
+global_labels:
+    - name: environment
+      selector: .environment
+    - name: id
+      selector: .id
+includes:
+    - name: router_backend_status
+      label_name: backend
+      label_selector: .does_not_exist
       selector:
         - ".router.backend.back1"
         - ".router.backend.back2"
@@ -442,7 +463,6 @@ includes:
     }
 
     #[test]
-    #[ignore]
     fn convert_json_ensure_custom_includes_has_include_label() {
         let json_str = json_with_several_components();
         let payload = Payload::new(json_str, Some(".components".into()),config_with_custom_includes());
@@ -456,6 +476,14 @@ includes:
         });
 
         assert!(has_include_label);
+    }
 
+    #[test]
+    fn convert_json_custom_include_with_invalid_selector_returns_error() {
+        let json_str = json_with_several_components();
+        let payload = Payload::new(json_str, Some(".components".into()),config_with_custom_includes_and_invalid_label_selector());
+        let metrics_or_error= payload.json_to_metrics();
+        assert!(metrics_or_error.is_err());
+        assert_matches!(metrics_or_error.unwrap_err(), PayloadError::SelectorError(_));
     }
 }

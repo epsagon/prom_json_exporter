@@ -71,13 +71,22 @@ impl CustomIncludeProcessor {
         if let Some(json_object) = json_value.as_object() {
             if let Some(gauge) = json_object.get(gauge_field) {
                 if let Some(config_gauge_field_values) = &self.config.gauge_field_values {
-                    let mut gauge_metrics = config_gauge_field_values
-                            .iter()
-                            .map(|value|
-                                self.create_metric(gauge, gauge_field, value, include)
-                            )
-                            .collect::<Vec<_>>();
-                    metrics.append(&mut gauge_metrics);
+                    let serde_value = self.get_custom_label_json_object(&include.label_selector)?;
+                    if let Some(custom_label_json_object) = serde_value.as_object() {//TODO: Handle conversion error {
+                        let label_name = custom_label_json_object.keys().find(|key| selector.contains(key.as_str())).unwrap();
+                        let label_tag = PromLabel::new(include.label_name.to_string(), label_name.to_string());
+
+                        let mut gauge_metrics = config_gauge_field_values
+                                .iter()
+                                .map(|value|
+                                    self.create_metric(gauge, gauge_field, value, include, label_tag.clone())
+                                )
+                                .collect::<Vec<_>>();
+                        metrics.append(&mut gauge_metrics);
+                    }
+                    else {
+                        return Err(CustomIncludeError::SelectorError(format!("Invalid Selector {}. Expected Object", &include.label_selector)))
+                    }
                 }
                 else {
                     metrics.push(PromMetric::new(include.name.to_string(),
@@ -100,8 +109,9 @@ impl CustomIncludeProcessor {
         Ok(value)
     }
 
-    fn create_metric(&self, gauge: &Value, gauge_field: &str, config_gauge_field_value: &String, include: &Include) -> PromMetric {
+    fn create_metric(&self, gauge: &Value, gauge_field: &str, config_gauge_field_value: &String, include: &Include, custom_label: PromLabel) -> PromMetric {
         let customized_labels = self.generate_metric_labels(vec![
+            custom_label,
             PromLabel::new(gauge_field.to_string(), config_gauge_field_value.to_string())
         ]);
         let object_value = utils::json_value_to_str(gauge).unwrap().to_lowercase();
@@ -124,9 +134,11 @@ impl CustomIncludeProcessor {
         metric_labels
     }
 
-    pub fn get_custom_label_json_object(&self, label_selector: &str) -> Result<Value, std::io::Error> {
+    pub fn get_custom_label_json_object(&self, label_selector: &str) -> Result<Value, CustomIncludeError> {
         let json_str = self.jq_instance.resolve_raw(&self.json_document, label_selector)?;
-        let json_object = serde_json::from_str(&json_str)?;
-        Ok(json_object)
+        match serde_json::from_str(&json_str) {
+            Ok(json_object) => Ok(json_object),
+            Err(_) => Err(CustomIncludeError::SelectorError(format!("Invalid Custom Include Selector '{}'", label_selector))),
+        }
     }
 }

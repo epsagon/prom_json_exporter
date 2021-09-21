@@ -1,4 +1,4 @@
-use crate::{custom_include::CustomIncludeError, payload::Payload, selector_error::SelectorError};
+use crate::{custom_include::CustomIncludeError, selector_error::SelectorError};
 
 #[derive(Debug)]
 pub enum PayloadError {
