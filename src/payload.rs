@@ -2,7 +2,7 @@ use serde_json::Value;
 use convert_case::{Case, Casing};
 use std::collections::HashMap;
 use crate::config_file::ConfigFile;
-use crate::custom_include::CustomIncludeProcessor;
+use crate::custom_include::processor::CustomIncludeProcessor;
 use crate::jq::Jq;
 use crate::json_object_processor::JsonObjectProcessor;
 use crate::prom_label::PromLabel;
@@ -99,7 +99,7 @@ impl Payload {
 #[cfg(test)]
 mod tests {
     use std::error::Error;
-    use crate::{config_file::{self, ConfigFile}, custom_include::CustomIncludeError, payload::Payload, prom_metric::PromMetric};
+    use crate::{config_file::{self, ConfigFile}, payload::Payload, prom_metric::PromMetric};
     use super::PayloadError;
     use assert_matches::assert_matches;
 

@@ -2,24 +2,8 @@ use serde_json::Value;
 
 use crate::{config_file::{ConfigFile, Include}, jq::Jq, prom_label::PromLabel, prom_metric::PromMetric, utils};
 
-#[derive(Debug)]
-pub enum CustomIncludeError {
-    IOError(std::io::Error),
-    JsonError(serde_json::Error),
-    SelectorError(String)
-}
+use super::error::CustomIncludeError;
 
-impl From<std::io::Error> for CustomIncludeError {
-    fn from(err: std::io::Error) -> Self {
-        CustomIncludeError::IOError(err)
-    }
-}
-
-impl From<serde_json::Error> for CustomIncludeError {
-    fn from(err: serde_json::Error) -> Self {
-        CustomIncludeError::JsonError(err)
-    }
-}
 
 pub struct CustomIncludeProcessor {
     config: ConfigFile,
