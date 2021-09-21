@@ -1,9 +1,6 @@
 use serde_json::Value;
-
-use crate::{config_file::{ConfigFile, Include}, jq::Jq, prom_label::PromLabel, prom_metric::PromMetric, utils};
-
+use crate::{config_file::{ConfigFile, Include}, custom_include::labels, jq::Jq, prom_label::PromLabel, prom_metric::PromMetric, utils};
 use super::error::CustomIncludeError;
-
 
 pub struct CustomIncludeProcessor {
     config: ConfigFile,
@@ -57,13 +54,17 @@ impl CustomIncludeProcessor {
                 if let Some(config_gauge_field_values) = &self.config.gauge_field_values {
                     let serde_value = self.get_custom_label_json_object(&include.label_selector)?;
                     if let Some(custom_label_json_object) = serde_value.as_object() {//TODO: Handle conversion error {
-                        let label_name = custom_label_json_object.keys().find(|key| selector.contains(key.as_str())).unwrap();
-                        let label_tag = PromLabel::new(include.label_name.to_string(), label_name.to_string());
 
                         let mut gauge_metrics = config_gauge_field_values
                                 .iter()
                                 .map(|value|
-                                    self.create_metric(gauge, gauge_field, value, include, label_tag.clone())
+                                    self.create_metric(
+                                            gauge,
+                                            gauge_field,
+                                            value,
+                                            include,
+                                            labels::custom_include_label(custom_label_json_object, selector, include)
+                                    )
                                 )
                                 .collect::<Vec<_>>();
                         metrics.append(&mut gauge_metrics);
@@ -73,6 +74,7 @@ impl CustomIncludeProcessor {
                     }
                 }
                 else {
+                    //TODO: Add tests for this case
                     metrics.push(PromMetric::new(include.name.to_string(),
                         0.into(), self.global_labels.clone()));
                 }
