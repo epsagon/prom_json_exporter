@@ -51,4 +51,8 @@ impl ConfigFile {
             Ok(())
         }
     }
+
+    pub fn has_gauge_values(&self) -> bool {
+        self.gauge_field_values.is_some()
+    }
 }
