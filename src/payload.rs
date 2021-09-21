@@ -210,6 +210,25 @@ global_labels:
         config_file::ConfigFile::from_str(yaml_str).unwrap()
     }
 
+    fn config_with_custom_include_and_no_gauge_field_values() -> ConfigFile {
+        let yaml_str = r#"
+gauge_field: status
+global_labels:
+    - name: environment
+      selector: .environment
+    - name: id
+      selector: .id
+includes:
+    - name: router_backend_status
+      label_name: backend
+      label_selector: .router.backend
+      selector:
+        - ".router.backend.back1"
+        - ".router.backend.back2"
+"#;
+        config_file::ConfigFile::from_str(yaml_str).unwrap()
+    }
+
     fn config_with_custom_includes() -> ConfigFile {
         let yaml_str = r#"
 gauge_field: status
@@ -485,5 +504,14 @@ includes:
         let metrics_or_error= payload.json_to_metrics();
         assert!(metrics_or_error.is_err());
         assert_matches!(metrics_or_error.unwrap_err(), PayloadError::SelectorError(_));
+    }
+
+    #[test]
+    #[ignore]
+    fn convert_json_custom_include_without_gauge_values() {
+        let json_str = json_with_several_components();
+        let payload = Payload::new(json_str, Some(".components".into()), config_with_custom_include_and_no_gauge_field_values());
+        let metrics = payload.json_to_metrics().unwrap();
+        //TODO: test that we get proper metrics with include label and no gauge field mapping
     }
 }
