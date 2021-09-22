@@ -1,5 +1,5 @@
-use serde_json::Value;
-use crate::{config_file::{ConfigFile, Include}, custom_include::labels, jq::Jq, prom_label::PromLabel, prom_metric::PromMetric, utils};
+use crate::{jq::Jq, prom_label::PromLabel, prom_metric::PromMetric};
+use crate::config_file::{ConfigFile, Include};
 use super::{error::CustomIncludeError, include_processor::IncludeProcessor};
 
 pub struct CustomIncludeProcessor {
