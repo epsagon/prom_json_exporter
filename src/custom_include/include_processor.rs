@@ -41,10 +41,10 @@ impl<'a> IncludeProcessor<'a> {
 
     fn json_object_to_metric(&self, include_selector: &str, json_object: Value) -> Result<Vec<PromMetric>, CustomIncludeError> {
         let mut metrics = vec![];
+        let mut labels = self.labels(include_selector)?;
 
         if self.config.has_gauge_values() {
             for gauge_field_value in self.config.gauge_field_values.as_ref().unwrap() {
-                let mut labels = self.labels(include_selector)?;
                 labels.push(
                     PromLabel::new(self.config.gauge_field.to_string(), gauge_field_value.to_string())
                 );
@@ -56,8 +56,15 @@ impl<'a> IncludeProcessor<'a> {
                 ));
             }
         } else {
-            //TODO
-            //What happens if the user didn't configure gauge values?
+            if let Some(json_value) = json_object.get(self.config.gauge_field.to_string()) {
+                metrics.push(PromMetric::new(
+                    self.include.name.to_string(),
+                    utils::json_value_to_i64(json_value),
+                    Some(labels.clone())
+                ));
+            }else {
+                return Err(CustomIncludeError::SelectorError(format!("Key {} is not present in JSON object", self.config.gauge_field)))
+            }
         }
 
         Ok(metrics)

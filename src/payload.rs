@@ -156,6 +156,42 @@ mod tests {
         }"#.to_string()
     }
 
+    fn json_with_numerical_status() -> String {
+        r#"{
+            "environment": "production",
+            "id": "xyz",
+            "last_refresh_epoch": 1631046901,
+            "components": {
+                "network": {
+                    "status": 1,
+                    "status_upstream": "active",
+                    "has_ip_addresses": true,
+                    "use_ip_v6": false,
+                    "upstream_endpoints": 54
+                },
+                "router": {
+                    "status": 2,
+                    "num_active_uplinks": 1,
+                    "num_uplinks": 2,
+                    "backend": {
+                        "back1": {
+                            "status": 2,
+                            "total_count": 2,
+                            "healthy_count": 1,
+                            "unhealthy_count": 1
+                        },
+                        "back2": {
+                            "status": 2,
+                            "total_count": 2,
+                            "healthy_count": 1,
+                            "unhealthy_count": 1
+                        }
+                    }
+                }
+            }
+        }"#.to_string()
+    }
+
     fn json_with_numeric_values() -> String {
         r#"{
             "environment": "production",
@@ -507,11 +543,33 @@ includes:
     }
 
     #[test]
-    #[ignore]
-    fn convert_json_custom_include_without_gauge_values() {
-        let json_str = json_with_several_components();
+    fn convert_json_custom_include_without_gauge_values_returns_four_metrics() {
+        let json_str =  json_with_numerical_status();
         let payload = Payload::new(json_str, Some(".components".into()), config_with_custom_include_and_no_gauge_field_values());
         let metrics = payload.json_to_metrics().unwrap();
-        //TODO: test that we get proper metrics with include label and no gauge field mapping
+        //We need 2 metrics for everything directly under `components`
+        //Plus two for the custom include
+        assert_eq!(metrics.len(), 4);
+    }
+
+    #[test]
+    fn convert_json_custom_include_without_gauge_values_custom_include_metrics_have_the_right_format() {
+        let json_str =  json_with_numerical_status();
+        let payload = Payload::new(json_str, Some(".components".into()), config_with_custom_include_and_no_gauge_field_values());
+        let metrics = payload.json_to_metrics().unwrap();
+        let metrics = metrics.iter()
+                .filter(|m| m.name == "router_backend_status")
+                .collect::<Vec<_>>();
+        assert_eq!(metrics.len(), 2);
+
+        assert!(metrics[0].labels.as_ref().unwrap().iter().find(|l| l.name == "environment").is_some());
+        assert!(metrics[0].labels.as_ref().unwrap().iter().find(|l| l.name == "id").is_some());
+        assert!(metrics[0].labels.as_ref().unwrap().iter().find(|l| l.name == "backend").is_some());
+        assert!(metrics[0].labels.as_ref().unwrap().iter().find(|l| l.name == "status").is_none());
+
+        assert!(metrics[1].labels.as_ref().unwrap().iter().find(|l| l.name == "environment").is_some());
+        assert!(metrics[1].labels.as_ref().unwrap().iter().find(|l| l.name == "id").is_some());
+        assert!(metrics[0].labels.as_ref().unwrap().iter().find(|l| l.name == "backend").is_some());
+        assert!(metrics[1].labels.as_ref().unwrap().iter().find(|l| l.name == "status").is_none());
     }
 }
