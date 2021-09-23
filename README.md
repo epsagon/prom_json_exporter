@@ -146,6 +146,31 @@ If the values are nested, you need to provide an entry point in `jq` notation:
 $json_exporter http://localhost:8800/json -c config.yaml -e ".components"
 ```
 
+### Custom Includes
+
+If you'd like to include metrics for JSON objects that are nested and wouldn't otherwise be generated automatically, it's possible to configure json exporter to also fetch and convert those.
+
+In your config file, please add:
+
+```json
+includes:
+    - name: router_backend_status
+      label_name: backend
+      label_selector: .router.backend
+      selector:
+        - ".router.backend.back1"
+        - ".router.backend.back2"
+```
+
+**Explanation**:
+
+`name`: The resulting metric name
+`label_name`: Since you can provide multiple selectors, each resulting metric will have an attribute indicating from which JSON Object it originated. `label_name` allows you to configure the name for that label.
+`label_selector`: A valid `jq` selector to fetch the value for above-mentioned label.
+`selector`: One or more valid `jq` selectors that specify paths for JSON objects to retrieve
+
+Example:
+
 ## Development
 
 - >= Rust 1.54
