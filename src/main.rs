@@ -14,6 +14,7 @@ mod utils;
 mod selector_error;
 mod payload_error;
 mod json_object_processor;
+mod custom_include;
 
 #[derive(Clap)]
 #[clap(version = "1.0", author = "Epsagon")]

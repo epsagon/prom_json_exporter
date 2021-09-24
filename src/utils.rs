@@ -41,7 +41,7 @@ pub fn json_value_to_i64(value: &Value) -> Option<i64> {
         }
     }
     else if value.is_number() {
-        return json_value_to_i64(value)
+        return value.as_i64().and_then(|v| Some(v))
     }
     else if value.is_boolean() {
         return value.as_bool().and_then(|f| Some(f as i64))

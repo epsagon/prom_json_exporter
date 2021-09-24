@@ -1,17 +1,26 @@
 use serde::Deserialize;
 use std::fs;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone, Debug)]
 pub struct GlobalLabel {
     pub name: String,
     pub selector: String
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone, Debug)]
+pub struct Include {
+    pub name: String,
+    pub selector: Vec<String>,
+    pub label_name: String,
+    pub label_selector: String
+}
+
+#[derive(Deserialize, Clone, Debug)]
 pub struct ConfigFile {
     pub gauge_field: String,
     pub global_labels: Option<Vec<GlobalLabel>>,
-    pub gauge_field_values: Option<Vec<String>>
+    pub gauge_field_values: Option<Vec<String>>,
+    pub includes: Option<Vec<Include>>
 }
 
 #[derive(Debug)]
@@ -41,5 +50,9 @@ impl ConfigFile {
         else {
             Ok(())
         }
+    }
+
+    pub fn has_gauge_values(&self) -> bool {
+        self.gauge_field_values.is_some()
     }
 }

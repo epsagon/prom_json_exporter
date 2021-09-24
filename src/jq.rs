@@ -7,6 +7,7 @@ use std::io::prelude::*;
 
 use crate::utils;
 
+#[derive(Clone)]
 pub struct Jq {}
 
 impl Jq {
@@ -42,6 +43,8 @@ impl Jq {
         Ok(filtered_json)
     }
 
+    /// Converts a JSON Value into an i64
+    /// Throws an error if the value cannot be converted to i64
     pub fn resolve_json_scalar_value(&self, json_payload: &str, jq_query: &str) -> Result<String, JqError> {
         let raw_json_value = self.resolve_raw(json_payload, jq_query)?;
         let json_value : serde_json::Value = serde_json::from_str(&raw_json_value)?;

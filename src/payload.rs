@@ -2,6 +2,7 @@ use serde_json::Value;
 use convert_case::{Case, Casing};
 use std::collections::HashMap;
 use crate::config_file::ConfigFile;
+use crate::custom_include::processor::CustomIncludeProcessor;
 use crate::jq::Jq;
 use crate::json_object_processor::JsonObjectProcessor;
 use crate::prom_label::PromLabel;
@@ -31,22 +32,6 @@ impl Payload {
         }
     }
 
-    fn fetch_global_metric_labels(&self) -> Result<Vec<PromLabel>, SelectorError> {
-        let mut labels = vec!();
-        for global_label in self.config.global_labels.as_ref().unwrap() {
-            let raw_value = self.jq.resolve_json_scalar_value(
-                &self.full_json_document,
-                &global_label.selector
-            );
-
-            match raw_value {
-                Ok(val) => labels.push(PromLabel::new(global_label.name.to_string(), val.trim().to_string())),
-                Err(err) => return Err(SelectorError::new("Failed to fetch global metric", Some(err)))
-            }
-        }
-        Ok(labels)
-    }
-
     pub fn json_to_metrics(&self) -> Result<Vec<PromMetric>, PayloadError> {
         let json_object: HashMap<String, Value> = serde_json::from_str(&self.payload_document)?;
         let mut metrics = vec![];
@@ -71,7 +56,33 @@ impl Payload {
             }
         }
 
+        if self.config.includes.is_some() {
+            let include_processor = CustomIncludeProcessor::new(
+                self.payload_document.to_string(),
+                self.config.clone(),
+                    global_labels.clone(),
+                    self.jq.clone()
+            );
+            metrics.append(&mut include_processor.process()?);
+        }
+
         Ok(metrics)
+    }
+
+    fn fetch_global_metric_labels(&self) -> Result<Vec<PromLabel>, SelectorError> {
+        let mut labels = vec!();
+        for global_label in self.config.global_labels.as_ref().unwrap() {
+            let raw_value = self.jq.resolve_json_scalar_value(
+                &self.full_json_document,
+                &global_label.selector
+            );
+
+            match raw_value {
+                Ok(val) => labels.push(PromLabel::new(global_label.name.to_string(), val.trim().to_string())),
+                Err(err) => return Err(SelectorError::new("Failed to fetch global metric", Some(err)))
+            }
+        }
+        Ok(labels)
     }
 
     fn visit_number(&self, json_value: (String, Value), global_labels: &Option<Vec<PromLabel>>) -> Option<PromMetric> {
@@ -88,10 +99,9 @@ impl Payload {
 #[cfg(test)]
 mod tests {
     use std::error::Error;
-
     use crate::{config_file::{self, ConfigFile}, payload::Payload, prom_metric::PromMetric};
-
     use super::PayloadError;
+    use assert_matches::assert_matches;
 
     fn full_json_file() -> String {
         r#"{
@@ -126,7 +136,57 @@ mod tests {
                 "router": {
                     "status": "Warning",
                     "num_active_uplinks": 1,
-                    "num_uplinks": 2
+                    "num_uplinks": 2,
+                    "backend": {
+                        "back1": {
+                            "status": "warning",
+                            "total_count": 2,
+                            "healthy_count": 1,
+                            "unhealthy_count": 1
+                        },
+                        "back2": {
+                            "status": "warning",
+                            "total_count": 2,
+                            "healthy_count": 1,
+                            "unhealthy_count": 1
+                        }
+                    }
+                }
+            }
+        }"#.to_string()
+    }
+
+    fn json_with_numerical_status() -> String {
+        r#"{
+            "environment": "production",
+            "id": "xyz",
+            "last_refresh_epoch": 1631046901,
+            "components": {
+                "network": {
+                    "status": 1,
+                    "status_upstream": "active",
+                    "has_ip_addresses": true,
+                    "use_ip_v6": false,
+                    "upstream_endpoints": 54
+                },
+                "router": {
+                    "status": 2,
+                    "num_active_uplinks": 1,
+                    "num_uplinks": 2,
+                    "backend": {
+                        "back1": {
+                            "status": 2,
+                            "total_count": 2,
+                            "healthy_count": 1,
+                            "unhealthy_count": 1
+                        },
+                        "back2": {
+                            "status": 2,
+                            "total_count": 2,
+                            "healthy_count": 1,
+                            "unhealthy_count": 1
+                        }
+                    }
                 }
             }
         }"#.to_string()
@@ -182,6 +242,69 @@ global_labels:
       selector: .environment
     - name: id
       selector: .id
+"#;
+        config_file::ConfigFile::from_str(yaml_str).unwrap()
+    }
+
+    fn config_with_custom_include_and_no_gauge_field_values() -> ConfigFile {
+        let yaml_str = r#"
+gauge_field: status
+global_labels:
+    - name: environment
+      selector: .environment
+    - name: id
+      selector: .id
+includes:
+    - name: router_backend_status
+      label_name: backend
+      label_selector: .router.backend
+      selector:
+        - ".router.backend.back1"
+        - ".router.backend.back2"
+"#;
+        config_file::ConfigFile::from_str(yaml_str).unwrap()
+    }
+
+    fn config_with_custom_includes() -> ConfigFile {
+        let yaml_str = r#"
+gauge_field: status
+gauge_field_values:
+  - warning
+  - ok
+global_labels:
+    - name: environment
+      selector: .environment
+    - name: id
+      selector: .id
+includes:
+    - name: router_backend_status
+      label_name: backend
+      label_selector: .router.backend
+      selector:
+        - ".router.backend.back1"
+        - ".router.backend.back2"
+"#;
+        config_file::ConfigFile::from_str(yaml_str).unwrap()
+    }
+
+    fn config_with_custom_includes_and_invalid_label_selector() -> ConfigFile {
+        let yaml_str = r#"
+gauge_field: status
+gauge_field_values:
+  - warning
+  - ok
+global_labels:
+    - name: environment
+      selector: .environment
+    - name: id
+      selector: .id
+includes:
+    - name: router_backend_status
+      label_name: backend
+      label_selector: .does_not_exist
+      selector:
+        - ".router.backend.back1"
+        - ".router.backend.back2"
 "#;
         config_file::ConfigFile::from_str(yaml_str).unwrap()
     }
@@ -364,5 +487,89 @@ global_labels:
 
         assert!(has_one_flag);
         assert!(has_zero_flag);
+    }
+
+
+    #[test]
+    fn convert_json_ensure_custom_includes_metric_has_correct_name() {
+        let json_str = json_with_several_components();
+        let payload = Payload::new(json_str, Some(".components".into()),config_with_custom_includes());
+        let metrics = payload.json_to_metrics().unwrap();
+
+        let custom_includes = metrics.iter().filter(|metric| metric.name == "router_backend_status")
+        .collect::<Vec<_>>();
+
+        //1 for each selector (2 total) * 2 gauge_field_values
+        assert_eq!(custom_includes.len(), 4);
+    }
+
+    #[test]
+    fn convert_json_ensure_custom_includes_metric_has_gauge_label() {
+        let json_str = json_with_several_components();
+        let payload = Payload::new(json_str, Some(".components".into()),config_with_custom_includes());
+        let metrics = payload.json_to_metrics().unwrap();
+        let custom_includes = metrics.iter().filter(|metric| metric.name == "router_backend_status")
+                                .collect::<Vec<_>>();
+        let has_custom_label = custom_includes.iter().all(|m| {
+            m.labels.as_ref().unwrap().iter().any(|l| l.name == "status")
+        });
+
+        assert!(has_custom_label);
+    }
+
+    #[test]
+    fn convert_json_ensure_custom_includes_has_include_label() {
+        let json_str = json_with_several_components();
+        let payload = Payload::new(json_str, Some(".components".into()),config_with_custom_includes());
+        let metrics = payload.json_to_metrics().unwrap();
+        let custom_includes = metrics.iter().filter(|metric| metric.name == "router_backend_status")
+                                .collect::<Vec<_>>();
+        let has_include_label = custom_includes.iter().all(|m|{
+            m.labels.as_ref().unwrap()
+            .iter()
+            .any(|l| l.name == "backend" && l.value.starts_with("back"))
+        });
+
+        assert!(has_include_label);
+    }
+
+    #[test]
+    fn convert_json_custom_include_with_invalid_selector_returns_error() {
+        let json_str = json_with_several_components();
+        let payload = Payload::new(json_str, Some(".components".into()),config_with_custom_includes_and_invalid_label_selector());
+        let metrics_or_error= payload.json_to_metrics();
+        assert!(metrics_or_error.is_err());
+        assert_matches!(metrics_or_error.unwrap_err(), PayloadError::SelectorError(_));
+    }
+
+    #[test]
+    fn convert_json_custom_include_without_gauge_values_returns_four_metrics() {
+        let json_str =  json_with_numerical_status();
+        let payload = Payload::new(json_str, Some(".components".into()), config_with_custom_include_and_no_gauge_field_values());
+        let metrics = payload.json_to_metrics().unwrap();
+        //We need 2 metrics for everything directly under `components`
+        //Plus two for the custom include
+        assert_eq!(metrics.len(), 4);
+    }
+
+    #[test]
+    fn convert_json_custom_include_without_gauge_values_custom_include_metrics_have_the_right_format() {
+        let json_str =  json_with_numerical_status();
+        let payload = Payload::new(json_str, Some(".components".into()), config_with_custom_include_and_no_gauge_field_values());
+        let metrics = payload.json_to_metrics().unwrap();
+        let metrics = metrics.iter()
+                .filter(|m| m.name == "router_backend_status")
+                .collect::<Vec<_>>();
+        assert_eq!(metrics.len(), 2);
+
+        assert!(metrics[0].labels.as_ref().unwrap().iter().find(|l| l.name == "environment").is_some());
+        assert!(metrics[0].labels.as_ref().unwrap().iter().find(|l| l.name == "id").is_some());
+        assert!(metrics[0].labels.as_ref().unwrap().iter().find(|l| l.name == "backend").is_some());
+        assert!(metrics[0].labels.as_ref().unwrap().iter().find(|l| l.name == "status").is_none());
+
+        assert!(metrics[1].labels.as_ref().unwrap().iter().find(|l| l.name == "environment").is_some());
+        assert!(metrics[1].labels.as_ref().unwrap().iter().find(|l| l.name == "id").is_some());
+        assert!(metrics[0].labels.as_ref().unwrap().iter().find(|l| l.name == "backend").is_some());
+        assert!(metrics[1].labels.as_ref().unwrap().iter().find(|l| l.name == "status").is_none());
     }
 }
