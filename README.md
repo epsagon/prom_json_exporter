@@ -1,8 +1,6 @@
 # json_exporter
 
-Prometheus requires metrics to be exposed in its own format. This exporter automatically converts a JSON endpoint to Prometheus metrics.
-
-Instead of configuring yaml for each individual JSON property, `json_exporter` automatically converts json properties into a metric if it's a number.
+Prometheus requires metrics to be exposed in its own format. This exporter automatically converts a JSON endpoint to Prometheus metrics without configuration for each field containing a number or boolean field.
 
 For instance:
 
@@ -26,7 +24,7 @@ It is possible, however, to leverage these properties to add additional context 
 ## Usage
 
 ```bash
-$ json_exporter <HTTP Endpoint serving JSON Data> -c config.yml
+$ json_exporter <HTTP Endpoint serving JSON Data> -c config.yml -e '<entry_point>'
 ```
 
 ## Configuration
