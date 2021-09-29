@@ -30,7 +30,7 @@ struct Opts {
     entry_point: Option<String>
 }
 
-async fn fetch_json(json_endpoint: String) -> Result<String, Box<dyn std::error::Error>> {
+async fn fetch_json(json_endpoint: String) -> Result<String, reqwest::Error> {
     let res = reqwest::get(json_endpoint).await?;
     let body = res.text().await?;
     Ok(body)
@@ -63,7 +63,12 @@ async fn metrics() -> status::Custom<content::Plain<String>> {
                 |metrics| status::Custom(Status::Ok, content::Plain(metrics)))
         },
         Err(err) => {
-            status::Custom(Status::InternalServerError, content::Plain(err.to_string()))
+            if err.is_timeout() || err.is_connect() {
+                status::Custom(Status::GatewayTimeout, content::Plain(err.to_string()))
+            }
+            else {
+                status::Custom(Status::InternalServerError, content::Plain(err.to_string()))
+            }
         }
     }
 }
