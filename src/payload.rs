@@ -572,4 +572,15 @@ includes:
         assert!(metrics[0].labels.as_ref().unwrap().iter().find(|l| l.name == "backend").is_some());
         assert!(metrics[1].labels.as_ref().unwrap().iter().find(|l| l.name == "status").is_none());
     }
+
+    #[test]
+    fn convert_json_with_custom_include_no_duplicate_status_tags() {
+        let json_str = json_with_several_components();
+        let payload = Payload::new(json_str, Some(".components".into()), config_with_custom_includes());
+        let metrics = payload.json_to_metrics().unwrap();
+
+        for metric in metrics {
+            assert_eq!(metric.labels.as_ref().unwrap().iter().filter(|l| l.name == "status").count(), 1, "metric {} has more than one status label", metric.name);
+        }
+    }
 }
