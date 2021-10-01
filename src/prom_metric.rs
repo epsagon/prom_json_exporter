@@ -16,23 +16,3 @@ impl PromMetric {
         }
     }
 }
-
-impl ToString for PromMetric {
-    fn to_string(&self) -> std::string::String {
-
-        if self.labels.is_none() {
-            format!("{} {}", self.name, self.value.as_ref().unwrap_or(&0))
-        }
-        else {
-            let labels = self.labels
-                .as_ref()
-                .unwrap()
-                .iter()
-                .map(|label| label.to_string())
-                .collect::<Vec<_>>()
-                .join(",");
-
-            format!("{}{{{}}} {}", self.name, labels, self.value.as_ref().unwrap_or(&0))
-        }
-    }
-}

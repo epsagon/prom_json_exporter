@@ -1,12 +1,12 @@
 use crate::{config_file::ConfigFile, prom_metric::PromMetric};
 
-pub struct Exporter {
-    config: ConfigFile,
+pub struct Exporter<'a> {
+    config: &'a ConfigFile,
     metrics: Vec<PromMetric>
 }
 
-impl Exporter {
-    pub(crate) fn new(config: ConfigFile, metrics: Vec<PromMetric>) -> Self {
+impl<'a> Exporter<'a> {
+    pub(crate) fn new(config: &'a ConfigFile, metrics: Vec<PromMetric>) -> Self {
         Self {
             config: config,
             metrics: metrics
@@ -24,7 +24,6 @@ impl Exporter {
     }
 
     fn metric_name(&self, metric: &PromMetric) -> String {
-        println!("{:?}", self.config.global_prefix);
         if let Some(metric_prefix) = &self.config.global_prefix {
             format!("{}_{}", metric_prefix, metric.name.to_string())
         }
@@ -142,36 +141,36 @@ includes:
     #[test]
     fn export_json_without_global_prefix() {
         let json_str = json_with_several_components();
+        let config = config_without_global_prefix();
         let payload = Payload::new(
             json_str,
             Some(".components".into()),
-            config_without_global_prefix(),
+            &config,
         );
         let metrics = payload.json_to_metrics().unwrap();
         let first_metric_name = metrics[0].name.to_string();
 
-        let exporter = Exporter::new(config_without_global_prefix(), metrics);
+        let exporter = Exporter::new(&config, metrics);
         let metrics_str = exporter.generate_metrics();
         let metrics_payload = metrics_str.lines().collect::<Vec<_>>();
-        println!("{:?}", metrics_payload[0]);
         assert!(metrics_payload[0].starts_with(&first_metric_name));
     }
 
     #[test]
     fn export_json_with_global_prefix() {
         let json_str = json_with_several_components();
+        let config = config_with_global_prefix();
         let payload = Payload::new(
             json_str,
             Some(".components".into()),
-            config_with_global_prefix(),
+            &config,
         );
         let metrics = payload.json_to_metrics().unwrap();
 
-        let exporter = Exporter::new(config_with_global_prefix(), metrics);
+        let exporter = Exporter::new(&config, metrics);
         let metrics_payload = exporter.generate_metrics();
 
         for metric in metrics_payload.lines() {
-            println!("METRIC {:?}", metric);
             assert!(
                 metric.starts_with("prom_test"),
                 "Expected metric name {} to start with prefix 'prom_test'",
