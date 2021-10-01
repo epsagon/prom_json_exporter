@@ -163,37 +163,41 @@ includes:
         config_file::ConfigFile::from_str(yaml_str).unwrap()
     }
 
-    #[test]
-    fn export_json_without_global_prefix() {
+    fn generate_metrics(config: &ConfigFile) -> String {
         let json_str = json_with_several_components();
-        let config = config_without_global_prefix();
         let payload = Payload::new(
             json_str,
             Some(".components".into()),
             &config,
         );
         let metrics = payload.json_to_metrics().unwrap();
-        let first_metric_name = metrics[0].name.to_string();
-
         let exporter = Exporter::new(&config, metrics);
-        let metrics_str = exporter.generate_metrics();
-        let metrics_payload = metrics_str.lines().collect::<Vec<_>>();
-        assert!(metrics_payload[0].starts_with(&first_metric_name));
+        let metrics_payload = exporter.generate_metrics();
+        metrics_payload
+    }
+
+    #[test]
+    fn export_json_without_global_prefix() {
+        let config = config_without_global_prefix();
+        let json_str = json_with_several_components();
+        let payload = Payload::new(
+            json_str,
+            Some(".components".into()),
+            &config,
+        );
+        let metrics = payload.json_to_metrics().unwrap();
+        let metric_name = metrics[0].name.to_string();
+        let exporter = Exporter::new(&config, metrics);
+        let metrics_payload = exporter.generate_metrics();
+        let lines = metrics_payload.lines().collect::<Vec<_>>();
+
+        assert!(lines[0].starts_with(&metric_name));
     }
 
     #[test]
     fn export_json_with_global_prefix() {
-        let json_str = json_with_several_components();
         let config = config_with_global_prefix();
-        let payload = Payload::new(
-            json_str,
-            Some(".components".into()),
-            &config,
-        );
-        let metrics = payload.json_to_metrics().unwrap();
-
-        let exporter = Exporter::new(&config, metrics);
-        let metrics_payload = exporter.generate_metrics();
+        let metrics_payload = generate_metrics(&config);
 
         for metric in metrics_payload.lines() {
             assert!(
