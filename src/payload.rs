@@ -309,6 +309,29 @@ includes:
         config_file::ConfigFile::from_str(yaml_str).unwrap()
     }
 
+    fn config_with_global_prefix() -> ConfigFile {
+        let yaml_str = r#"
+gauge_field: status
+gauge_field_values:
+  - warning
+  - ok
+global_prefix: prom_test
+global_labels:
+    - name: environment
+      selector: .environment
+    - name: id
+      selector: .id
+includes:
+    - name: router_backend_status
+      label_name: backend
+      label_selector: .router.backend
+      selector:
+        - ".router.backend.back1"
+        - ".router.backend.back2"
+"#;
+        config_file::ConfigFile::from_str(yaml_str).unwrap()
+    }
+
     fn create_metrics() -> Vec<PromMetric> {
         let json_str = full_json_file();
         let payload = Payload::new(json_str, Some(".components".into()), config_without_gauge_mapping());

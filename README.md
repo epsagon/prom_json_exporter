@@ -167,7 +167,14 @@ includes:
 `label_selector`: A valid `jq` selector to fetch the value for above-mentioned label.
 `selector`: One or more valid `jq` selectors that specify paths for JSON objects to retrieve
 
-Example:
+### Global Prefix
+
+If you'd like to add a prefix to all metrics so you can determine their origin, please add
+
+```yaml
+global_prefix: my_prefix
+```
+to your configuration file.
 
 ## Development
 
