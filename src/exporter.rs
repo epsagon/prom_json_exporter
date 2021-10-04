@@ -163,6 +163,29 @@ includes:
         config_file::ConfigFile::from_str(yaml_str).unwrap()
     }
 
+    fn config_with_camel_case_prefix() -> ConfigFile {
+        let yaml_str = r#"
+gauge_field: status
+gauge_field_values:
+  - warning
+  - ok
+global_prefix: promTest
+global_labels:
+    - name: environment
+      selector: .environment
+    - name: id
+      selector: .id
+includes:
+    - name: router_backend_status
+      label_name: backend
+      label_selector: .router.backend
+      selector:
+        - ".router.backend.back1"
+        - ".router.backend.back2"
+"#;
+        config_file::ConfigFile::from_str(yaml_str).unwrap()
+    }
+
     fn generate_metrics(config: &ConfigFile) -> String {
         let json_str = json_with_several_components();
         let payload = Payload::new(
@@ -209,9 +232,32 @@ includes:
     }
 
     #[test]
-    fn export_json_with_dashes_in_prefix_converts_to_camel_case() {
+    fn export_json_with_dashes_in_prefix_converts_to_snake_case() {
         let json_str = json_with_several_components();
         let config = config_with_dashed_prefix();
+        let payload = Payload::new(
+            json_str,
+            Some(".components".into()),
+            &config,
+        );
+        let metrics = payload.json_to_metrics().unwrap();
+
+        let exporter = Exporter::new(&config, metrics);
+        let metrics_payload = exporter.generate_metrics();
+
+        for metric in metrics_payload.lines() {
+            assert!(
+                metric.starts_with("prom_test"),
+                "Expected metric name {} to start with prefix 'prom_test'",
+                metric
+            );
+        }
+    }
+
+    #[test]
+    fn export_json_global_prefix_camel_case_converts_to_snake_case() {
+        let json_str = json_with_several_components();
+        let config = config_with_camel_case_prefix();
         let payload = Payload::new(
             json_str,
             Some(".components".into()),
