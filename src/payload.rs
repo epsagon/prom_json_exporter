@@ -11,15 +11,15 @@ use crate::utils;
 use crate::selector_error::SelectorError;
 use crate::payload_error::PayloadError;
 
-pub struct Payload {
+pub struct Payload<'a> {
     full_json_document: String,
     payload_document: String,
-    config: ConfigFile,
+    config: &'a ConfigFile,
     jq: Jq
 }
 
-impl Payload {
-    pub fn new(json: String, json_entry_point: Option<String>, config: ConfigFile) -> Self {
+impl<'a> Payload<'a> {
+    pub fn new(json: String, json_entry_point: Option<String>, config: &'a ConfigFile) -> Self {
         let jq = Jq::new().unwrap();
         let default_query = ".".to_string(); // `.` is the jq filter that returns the entire document
         let payload_document = jq.resolve_raw(&json, &json_entry_point.unwrap_or(default_query)).unwrap(); //TODO: "HANDLE THIS ERROR ACCORDINGLY"
@@ -311,14 +311,16 @@ includes:
 
     fn create_metrics() -> Vec<PromMetric> {
         let json_str = full_json_file();
-        let payload = Payload::new(json_str, Some(".components".into()), config_without_gauge_mapping());
+        let config = config_without_gauge_mapping();
+        let payload = Payload::new(json_str, Some(".components".into()), &config);
         payload.json_to_metrics().unwrap()
     }
 
     #[test]
     fn convert_json_object_no_entry_point() {
         let json_str = json_with_numeric_values();
-        let payload = Payload::new(json_str, None, config_without_gauge_mapping());
+        let config = config_without_gauge_mapping();
+        let payload = Payload::new(json_str, None, &config);
         let mut payload_names= payload.json_to_metrics()
                                         .unwrap()
                                         .iter()
@@ -339,7 +341,8 @@ includes:
         //We want to test what happens when we try to fetch global labels from the json
         //that do not exist
         let json_str = json_with_numeric_values();
-        let payload = Payload::new(json_str, None, config_with_non_existing_global_labels());
+        let config = config_with_non_existing_global_labels();
+        let payload = Payload::new(json_str, None, &config);
         match payload.json_to_metrics().unwrap_err() {
             PayloadError::SelectorError(err) => {
                 assert!(err.source().is_some());
@@ -353,7 +356,8 @@ includes:
     #[test]
     fn convert_json_object_no_entry_point_does_not_convert_child_object() {
         let json_str = json_with_numeric_values();
-        let payload = Payload::new(json_str, None, config_without_gauge_mapping());
+        let config = config_without_gauge_mapping();
+        let payload = Payload::new(json_str, None, &config);
         let metrics = payload.json_to_metrics().unwrap();
         let component_metric = metrics.iter().find(|m| m.name == "components");
 
@@ -431,7 +435,8 @@ includes:
     #[test]
     fn convert_full_json_with_root_entry_point_only_converts_numeric() {
         let json_str = full_json_file();
-        let payload = Payload::new(json_str, Some(".".into()), config_without_gauge_mapping());
+        let config = config_without_gauge_mapping();
+        let payload = Payload::new(json_str, Some(".".into()), &config);
         let metrics = payload.json_to_metrics().unwrap();
         assert_eq!(metrics[0].name, "last_refresh_epoch");
         assert_eq!(metrics[0].value, Some(1631046901));
@@ -440,7 +445,8 @@ includes:
     #[test]
     fn convert_full_json_with_root_entry_point_has_global_attributes() {
         let json_str = full_json_file();
-        let payload = Payload::new(json_str, Some(".".into()), config_without_gauge_mapping());
+        let config = config_without_gauge_mapping();
+        let payload = Payload::new(json_str, Some(".".into()), &config);
         let metrics = payload.json_to_metrics().unwrap();
         let labels = metrics[0].labels.as_ref().unwrap();
 
@@ -451,7 +457,8 @@ includes:
     #[test]
     fn convert_json_ensure_one_metric_per_gauge_value() {
         let json_str = json_with_several_components();
-        let payload = Payload::new(json_str, Some(".components".into()), config_with_gauge_mapping());
+        let config = config_with_gauge_mapping();
+        let payload = Payload::new(json_str, Some(".components".into()), &config);
         let metrics = payload.json_to_metrics().unwrap();
         assert_eq!(metrics.len(), 4);
     }
@@ -459,7 +466,8 @@ includes:
     #[test]
     fn convert_json_ensure_metric_per_gauge_value_has_correct_label() {
         let json_str = json_with_several_components();
-        let payload = Payload::new(json_str, Some(".components".into()), config_with_gauge_mapping());
+        let config = config_with_gauge_mapping();
+        let payload = Payload::new(json_str, Some(".components".into()), &config);
         let metrics = payload.json_to_metrics().unwrap();
 
         let first = metrics[0].labels.as_ref().unwrap();
@@ -474,7 +482,8 @@ includes:
     #[test]
     fn convert_json_ensure_metric_per_gauge_value_has_correct_flag() {
         let json_str = json_with_several_components();
-        let payload = Payload::new(json_str, Some(".components".into()), config_with_gauge_mapping());
+        let config = config_with_gauge_mapping();
+        let payload = Payload::new(json_str, Some(".components".into()), &config);
         let metrics = payload.json_to_metrics().unwrap();
 
         assert_eq!(metrics.len(), 4);
@@ -493,7 +502,8 @@ includes:
     #[test]
     fn convert_json_ensure_custom_includes_metric_has_correct_name() {
         let json_str = json_with_several_components();
-        let payload = Payload::new(json_str, Some(".components".into()),config_with_custom_includes());
+        let config = config_with_custom_includes();
+        let payload = Payload::new(json_str, Some(".components".into()),&config);
         let metrics = payload.json_to_metrics().unwrap();
 
         let custom_includes = metrics.iter().filter(|metric| metric.name == "router_backend_status")
@@ -506,7 +516,8 @@ includes:
     #[test]
     fn convert_json_ensure_custom_includes_metric_has_gauge_label() {
         let json_str = json_with_several_components();
-        let payload = Payload::new(json_str, Some(".components".into()),config_with_custom_includes());
+        let config = config_with_custom_includes();
+        let payload = Payload::new(json_str, Some(".components".into()), &config);
         let metrics = payload.json_to_metrics().unwrap();
         let custom_includes = metrics.iter().filter(|metric| metric.name == "router_backend_status")
                                 .collect::<Vec<_>>();
@@ -520,7 +531,8 @@ includes:
     #[test]
     fn convert_json_ensure_custom_includes_has_include_label() {
         let json_str = json_with_several_components();
-        let payload = Payload::new(json_str, Some(".components".into()),config_with_custom_includes());
+        let config = &config_with_custom_includes();
+        let payload = Payload::new(json_str, Some(".components".into()), config);
         let metrics = payload.json_to_metrics().unwrap();
         let custom_includes = metrics.iter().filter(|metric| metric.name == "router_backend_status")
                                 .collect::<Vec<_>>();
@@ -536,7 +548,8 @@ includes:
     #[test]
     fn convert_json_custom_include_with_invalid_selector_returns_error() {
         let json_str = json_with_several_components();
-        let payload = Payload::new(json_str, Some(".components".into()),config_with_custom_includes_and_invalid_label_selector());
+        let config = config_with_custom_includes_and_invalid_label_selector();
+        let payload = Payload::new(json_str, Some(".components".into()), &config);
         let metrics_or_error= payload.json_to_metrics();
         assert!(metrics_or_error.is_err());
         assert_matches!(metrics_or_error.unwrap_err(), PayloadError::SelectorError(_));
@@ -545,7 +558,8 @@ includes:
     #[test]
     fn convert_json_custom_include_without_gauge_values_returns_four_metrics() {
         let json_str =  json_with_numerical_status();
-        let payload = Payload::new(json_str, Some(".components".into()), config_with_custom_include_and_no_gauge_field_values());
+        let config = config_with_custom_include_and_no_gauge_field_values();
+        let payload = Payload::new(json_str, Some(".components".into()), &config);
         let metrics = payload.json_to_metrics().unwrap();
         //We need 2 metrics for everything directly under `components`
         //Plus two for the custom include
@@ -555,7 +569,8 @@ includes:
     #[test]
     fn convert_json_custom_include_without_gauge_values_custom_include_metrics_have_the_right_format() {
         let json_str =  json_with_numerical_status();
-        let payload = Payload::new(json_str, Some(".components".into()), config_with_custom_include_and_no_gauge_field_values());
+        let config = config_with_custom_include_and_no_gauge_field_values();
+        let payload = Payload::new(json_str, Some(".components".into()), &config);
         let metrics = payload.json_to_metrics().unwrap();
         let metrics = metrics.iter()
                 .filter(|m| m.name == "router_backend_status")
@@ -576,7 +591,8 @@ includes:
     #[test]
     fn convert_json_with_custom_include_no_duplicate_status_tags() {
         let json_str = json_with_several_components();
-        let payload = Payload::new(json_str, Some(".components".into()), config_with_custom_includes());
+        let config = config_with_custom_includes();
+        let payload = Payload::new(json_str, Some(".components".into()), &config);
         let metrics = payload.json_to_metrics().unwrap();
 
         for metric in metrics {

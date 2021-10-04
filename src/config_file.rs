@@ -19,6 +19,7 @@ pub struct Include {
 pub struct ConfigFile {
     pub gauge_field: String,
     pub global_labels: Option<Vec<GlobalLabel>>,
+    pub global_prefix: Option<String>,
     pub gauge_field_values: Option<Vec<String>>,
     pub includes: Option<Vec<Include>>
 }
