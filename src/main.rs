@@ -1,5 +1,6 @@
 use crate::config_file::ConfigFile;
 use clap::{AppSettings, Clap};
+use exporter::Exporter;
 use rocket::http::Status;
 use rocket::response::{content, status};
 
@@ -15,6 +16,7 @@ mod selector_error;
 mod payload_error;
 mod json_object_processor;
 mod custom_include;
+mod exporter;
 
 #[derive(Clap)]
 #[clap(version = "1.0", author = "Epsagon")]
@@ -38,13 +40,10 @@ async fn fetch_json(json_endpoint: String) -> Result<String, reqwest::Error> {
 
 fn process_json(config_file_path: &str, json_entry_point: String, body: String) -> Option<String> {
     let config = ConfigFile::from_file(config_file_path).unwrap();
-    let json_payload = payload::Payload::new(body, Some(json_entry_point), config);
+    let json_payload = payload::Payload::new(body, Some(json_entry_point), &config);
     if let Ok(converted_metrics) = json_payload.json_to_metrics() {
-        Some(converted_metrics
-            .into_iter()
-            .map(|metric| metric.to_string())
-            .collect::<Vec<_>>()
-            .join("\n"))
+        let exporter = Exporter::new(&config, converted_metrics);
+        Some(exporter.generate_metrics())
     }
     else {
         None

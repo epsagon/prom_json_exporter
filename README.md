@@ -1,8 +1,8 @@
 # json_exporter
 
-Prometheus requires metrics to be exposed in its own format. This exporter automatically converts a JSON endpoint to Prometheus metrics without configuration for each field containing a number or boolean field.
+> Automatically convert JSON payloads into Prometheus metrics
 
-For instance:
+Let's say your JSON Endpoint exposes information similar to:
 
 ```json
 {
@@ -11,7 +11,7 @@ For instance:
 }
 ```
 
-gets automatically transformed into:
+This automatically gets transformed into:
 
 ```
 last_refresh_epoch 1631046901,
@@ -29,7 +29,7 @@ $ json_exporter <HTTP Endpoint serving JSON Data> -c config.yml -e '<entry_point
 
 ## Configuration
 
-As mentioned before, JSON properties with numeric or boolean values get converted automatically. JSON responses with a more complex structure require additional configuration.
+JSON properties with numeric or boolean values get converted automatically. JSON responses with a more complex structure require additional configuration.
 
 Consider this JSON:
 
@@ -138,7 +138,7 @@ network_status{environment="production",id="xyz",status_upstream="active",has_ip
 network_status{environment="production",id="xyz",status_upstream="active",has_ip_addresses=true,use_ip_v6=false,upstream_endpoints=54,status="ok"} 1
 ```
 
-If the values are nested, you need to provide an entry point in `jq` notation:
+If the values are nested, you need to provide an entry point (via `-e` flag) in `jq` notation:
 
 ```
 $json_exporter http://localhost:8800/json -c config.yaml -e ".components"
@@ -167,7 +167,14 @@ includes:
 `label_selector`: A valid `jq` selector to fetch the value for above-mentioned label.
 `selector`: One or more valid `jq` selectors that specify paths for JSON objects to retrieve
 
-Example:
+### Global Prefix
+
+If you'd like to add a prefix to all metrics so you can determine their origin, please add
+
+```yaml
+global_prefix: my_prefix
+```
+to your configuration file.
 
 ## Development
 
